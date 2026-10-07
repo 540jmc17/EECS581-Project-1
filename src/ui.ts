@@ -1,28 +1,50 @@
 /*
  * Module Name: ui.ts
  * Description: Renders the Minesweeper start screen and game interface, and handles
- * user interactions such as reveal, flagging, and restart actions.
+ * user interactions such as reveal, flagging, and restart actions. Supports a normal
+ * mode and a Player vs Hard AI mode where the AI moves after each player reveal.
  *
- * Inputs: Browser DOM elements, user input events, selected mine counts, and callbacks
- * from the game logic layer.
+ * Inputs: Browser DOM elements, user input events, selected mine counts, selected game
+ * mode, and callbacks from the game logic layer.
  * Outputs: Updated DOM content for the start screen, game board, and win-state overlay.
  *
  * Author: Aayush Gajakas and Aiman Boullaouz
  * Creation Date: September 15, 2026
+ *
+ * Modified By: Zema Samuel
+ * Modification Date: October 7, 2026
+ * Modification Changes: Added a game mode selector (Normal / Hard AI), passed the mode
+ * through the start callback and game screen, and added Hard AI turns that run one second
+ * after the player's reveal. The player is locked out while the AI move is pending, and
+ * the pending AI move is cancelled when a new game starts.
+ * Modification AI Attribution: Claude Sonnet 5.5 was used for integration assistance 
+ *
  * External Sources / Attribution: Original project UI code; browser DOM APIs and the
  * Canvas 2D API are used directly from the browser environment. No third-party UI logic
  * was copied into this file.
  * Code Origin: Original implementation combined with standard browser APIs.
  */
-// import the game logic that actually creates boards, reveals cells, and toggles flags
-import { createGame, revealCell, toggleFlag } from './game.js';
+// import the game logic that actually creates boards, reveals cells, toggles flags, and runs the hard AI
+import { createGame, revealCell, toggleFlag, makeHardAIMove } from './game.js';
 // import the shared board size constants and board type from the model layer
 import { BOARD_SIZE, MAX_MINES, MIN_MINES, type Board } from './types.js';
 
-// type for the start screen callback, it gives the selected mine count to the game launcher
-type StartGameHandler = (mineCount: number) => void;
+// indicates whether the player is playing normally or against the hard AI
+type GameMode = 'human' | 'hard-ai';
+// type for the start screen callback, it gives the selected mine count and game mode to the game launcher
+type StartGameHandler = (mineCount: number, gameMode: GameMode) => void;
 // type for the new-game callback, it tells the UI to restart from the start screen
 type NewGameHandler = () => void;
+// hooks the game screen gives the board so it can coordinate player and AI turns
+type TurnControls = {
+    // true while the AI move is pending, so the player cannot act out of turn
+    isLocked: () => boolean;
+    // called after the player reveals a cell, so the game screen can schedule the AI
+    afterPlayerReveal: () => void;
+};
+
+// delay before the AI moves so the player can clearly see what it did
+const AI_MOVE_DELAY_MS = 1000;
 
 // get the main app container, every screen gets mounted into this one root element
 function getApp(): HTMLElement {
@@ -54,7 +76,7 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
     return element;
 }
 
-// render the opening screen, let the user choose a mine count, then start the game
+// render the opening screen, let the user choose a mine count and game mode, then start the game
 export function renderStartScreen(onStart: StartGameHandler): void {
     // get the app root and clear any previous screen
     const app = getApp();
@@ -102,18 +124,42 @@ export function renderStartScreen(onStart: StartGameHandler): void {
     // put the readout and range input into the label block
     minePicker.append(mineReadout, mineRange);
 
+    // create the game mode selector for choosing normal play or Hard AI
+    const modePicker = createElement('label', 'mode-picker');
+    // create the text label for the game mode selector
+    const modeLabel = createElement('span', 'mode-label', 'Game mode');
+    // create the dropdown containing the game modes to choose
+    const modeSelect = document.createElement('select');
+    modeSelect.className = 'mode-select';
+
+    // normal Minesweeper mode
+    const humanOption = document.createElement('option');
+    humanOption.value = 'human';
+    humanOption.textContent = 'Normal';
+
+    // interactive Hard AI mode where the player and AI alternate turns
+    const hardAIOption = document.createElement('option');
+    hardAIOption.value = 'hard-ai';
+    hardAIOption.textContent = 'Hard AI (Player vs AI)';
+
+    // add both modes to the selector, then the label and selector to the picker
+    modeSelect.append(humanOption, hardAIOption);
+    modePicker.append(modeLabel, modeSelect);
+
     // create the button that starts a new game
     const startButton = createElement('button', 'start-button', 'Start game');
     // make it a normal button, not a submit button
     startButton.type = 'button';
-    // when clicked, pass the chosen mine count to the parent callback
-    startButton.addEventListener('click', () => onStart(Number(mineRange.value)));
+    // when clicked, pass the chosen mine count and game mode to the parent callback
+    startButton.addEventListener('click', () =>
+        onStart(Number(mineRange.value), modeSelect.value as GameMode)
+    );
     // create the instruction panel that explains the basic rules
     const instructions = createElement('div', 'instructions');
     // use HTML because the instructions include a list and inline icon
     instructions.innerHTML = '<span class="instruction-icon">?</span><div><strong>How to play</strong><ul><li>Reveal every safe square.</li><li>Use numbers to spot nearby mines.</li><li>Right-click to flag a suspected mine.</li></ul></div>';
-    // add all setup elements to the panel
-    setup.append(setupHeading, minePicker, startButton, instructions);
+    // add all setup elements to the panel, including the mode picker
+    setup.append(setupHeading, minePicker, modePicker, startButton, instructions);
     // add the intro and setup panel to the shell
     shell.append(intro, setup);
     // append the finished start screen to the app root
@@ -121,7 +167,7 @@ export function renderStartScreen(onStart: StartGameHandler): void {
 }
 
 // render the board grid and attach left-click and right-click handlers to each square
-function renderBoard(boardData: Board, onUpdate: () => void): HTMLElement {
+function renderBoard(boardData: Board, onUpdate: () => void, controls: TurnControls): HTMLElement {
     // create the board container as a grid
     const board = createElement('div', 'board');
     // set the board id so styling or tests can target it
@@ -161,12 +207,23 @@ function renderBoard(boardData: Board, onUpdate: () => void): HTMLElement {
             cell.setAttribute('aria-label', cellData.state === 'flagged' ? 'flagged square' : 'covered square');
             // left click reveals the square and rerenders the board
             cell.addEventListener('click', () => {
+                // ignore clicks while the AI is thinking, and clicks on cells that cannot be revealed,
+                // so the player cannot trigger extra AI turns by clicking revealed or flagged cells
+                if (controls.isLocked() || cellData.state !== 'covered') {
+                    return;
+                }
                 revealCell(boardData, row, column);
                 onUpdate();
+                // let the game screen schedule the AI's turn if one applies
+                controls.afterPlayerReveal();
             });
             // right click toggles a flag and rerenders the board
             cell.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
+                // flagging is not allowed while the AI is moving
+                if (controls.isLocked()) {
+                    return;
+                }
                 toggleFlag(boardData, row, column);
                 onUpdate();
             });
@@ -254,7 +311,7 @@ function showWinCelebration(app: HTMLElement): void {
 }
 
 // render the active game screen with a board, HUD, and status update logic
-export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): void {
+export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGame: NewGameHandler): void {
     // get the app root and wipe any previous page
     const app = getApp();
     app.replaceChildren();
@@ -282,6 +339,18 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
     const boardFrame = createElement('section', 'board-frame');
     // flag to ensure the confetti only appears once per win
     let celebrationShown = false;
+    // id of the pending AI move timer, or null when the AI is not about to move
+    let aiTimer: number | null = null;
+
+    // cancel any pending AI move, then return to the start screen
+    const startNewGame = (): void => {
+        if (aiTimer !== null) {
+            window.clearTimeout(aiTimer);
+            aiTimer = null;
+        }
+        onNewGame();
+    };
+
     // this function refreshes the HUD and board whenever the game state changes
     const updateGameView = (): void => {
         // update the remaining-mine counter and add the button to start another round
@@ -289,7 +358,7 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
         const remainingMines = gameBoard.mineCount - flaggedCount;
         stats.innerHTML = `<div><span>Mines</span><strong>${remainingMines}</strong></div><button class="new-game-button" type="button">New game</button>`;
         // attach the new-game callback when the button is clicked
-        stats.querySelector<HTMLButtonElement>('.new-game-button')?.addEventListener('click', onNewGame);
+        stats.querySelector<HTMLButtonElement>('.new-game-button')?.addEventListener('click', startNewGame);
         // set the win/loss message based on the current game status
         gameMessage.textContent = gameBoard.gameStatus === 'won'
             ? 'YOU WIN'
@@ -304,8 +373,29 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
             showWinCelebration(app);
         }
         // replace the current board with a newly rendered version from the latest game state
-        boardHost.replaceChildren(renderBoard(gameBoard, updateGameView));
+        boardHost.replaceChildren(renderBoard(gameBoard, updateGameView, turnControls));
     };
+
+    // coordinates player and AI turns for this game
+    const turnControls: TurnControls = {
+        isLocked: () => aiTimer !== null,
+        afterPlayerReveal: () => {
+            // in Hard AI mode, let the AI move after the player while the game is still going
+            if (gameMode !== 'hard-ai' || gameBoard.gameStatus !== 'playing') {
+                return;
+            }
+            // delay the AI move so the player can see it clearly
+            aiTimer = window.setTimeout(() => {
+                aiTimer = null;
+                // confirm the game is still in progress before moving
+                if (gameBoard.gameStatus === 'playing') {
+                    makeHardAIMove(gameBoard);
+                    updateGameView();
+                }
+            }, AI_MOVE_DELAY_MS);
+        },
+    };
+
     // do an initial render before appending the screen
     updateGameView();
     // place the stats, message, and board into the frame
@@ -315,4 +405,3 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
     // add the entire game screen to the app root
     app.append(gameShell);
 }
-
