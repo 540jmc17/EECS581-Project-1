@@ -2,7 +2,7 @@
  * Module Name: ui.ts
  * Description: Renders the Minesweeper start screen and game interface, and handles
  * user interactions such as reveal, flagging, and restart actions. Supports a normal
- * mode and a Player vs Hard AI mode where the AI moves after each player reveal.
+ * mode and a Player vs Hard AI mode where the AI moves after each player reveal or flag.
  *
  * Inputs: Browser DOM elements, user input events, selected mine counts, selected game
  * mode, and callbacks from the game logic layer.
@@ -15,9 +15,9 @@
  * Modification Date: October 7, 2026
  * Modification Changes: Added a game mode selector (Normal / Hard AI), passed the mode
  * through the start callback and game screen, and added Hard AI turns that run one second
- * after the player's reveal. The player is locked out while the AI move is pending, and
+ * after the player's turn (a reveal or a flag). The player is locked out while the AI move is pending, and
  * the pending AI move is cancelled when a new game starts.
- * Modification AI Attribution: Claude Sonnet 5.5 was used for integration assistance 
+ * Modification AI Attribution: Claude Sonnet 5.5 was used for integration assistance
  *
  * External Sources / Attribution: Original project UI code; browser DOM APIs and the
  * Canvas 2D API are used directly from the browser environment. No third-party UI logic
@@ -39,8 +39,8 @@ type NewGameHandler = () => void;
 type TurnControls = {
     // true while the AI move is pending, so the player cannot act out of turn
     isLocked: () => boolean;
-    // called after the player reveals a cell, so the game screen can schedule the AI
-    afterPlayerReveal: () => void;
+    // called after the player takes a turn (reveal or flag), so the game screen can schedule the AI
+    afterPlayerMove: () => void;
 };
 
 // delay before the AI moves so the player can clearly see what it did
@@ -215,17 +215,23 @@ function renderBoard(boardData: Board, onUpdate: () => void, controls: TurnContr
                 revealCell(boardData, row, column);
                 onUpdate();
                 // let the game screen schedule the AI's turn if one applies
-                controls.afterPlayerReveal();
+                controls.afterPlayerMove();
             });
             // right click toggles a flag and rerenders the board
             cell.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
-                // flagging is not allowed while the AI is moving
-                if (controls.isLocked()) {
+                // ignore flagging while the AI is moving, and on revealed cells (they cannot be flagged)
+                if (controls.isLocked() || cellData.state === 'revealed') {
                     return;
                 }
+                const stateBefore = cellData.state;
                 toggleFlag(boardData, row, column);
+                // a flag refused because the flag limit was reached changes nothing, so it should not use up the turn
+                const changed = boardData.cells[row][column].state !== stateBefore;
                 onUpdate();
+                if (changed) {
+                    controls.afterPlayerMove();
+                }
             });
             // append the finished cell to the board container
             board.append(cell);
@@ -379,7 +385,7 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
     // coordinates player and AI turns for this game
     const turnControls: TurnControls = {
         isLocked: () => aiTimer !== null,
-        afterPlayerReveal: () => {
+        afterPlayerMove: () => {
             // in Hard AI mode, let the AI move after the player while the game is still going
             if (gameMode !== 'hard-ai' || gameBoard.gameStatus !== 'playing') {
                 return;
