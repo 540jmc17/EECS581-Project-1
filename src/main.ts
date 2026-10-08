@@ -16,8 +16,8 @@ import { renderGameScreen, renderStartScreen } from './ui.js';
 
 // Displays the start screen and sets up the callback to transition to the game screen.
 function showStartScreen(): void { 
-	renderStartScreen((mineCount) => {
-		renderGameScreen(mineCount, showStartScreen);
+	renderStartScreen((mineCount, gameMode) => {
+		renderGameScreen(mineCount, gameMode, showStartScreen);
 	});
 }
 
