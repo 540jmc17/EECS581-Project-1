@@ -10,19 +10,36 @@ This project is a browser-based Minesweeper game implemented in TypeScript. The 
 flowchart TD
     HTML[index.html] --> Main[src/main.ts]
     Main --> UI[src/ui.ts]
-    UI --> Game[src/game.ts]
-    UI --> Types[src/types.ts]
-    Game --> Types
+
     UI --> DOM[Browser DOM]
     UI --> Canvas[Canvas 2D win animation]
+    UI -->|reveal / flag| Game[src/game.ts<br/>game engine]
+    UI -->|Easy, Medium, or Hard mode| Turn[Turn controller in ui.ts<br/>AI_MOVES table + 1s delay]
+    UI -->|start / finish| Timer[src/new_suggestion/<br/>timerHighScore.ts]
+
+    Turn -->|one move per turn| AI[AI solver in src/game.ts<br/>Easy + Medium + Hard]
+    AI -->|revealCell / toggleFlag| Game
+    Timer -->|best time per mine count| Storage[(Browser localStorage)]
+
+    Game --> Types[src/types.ts]
+    UI --> Types
+
+    classDef added fill:#fff4e5,stroke:#f59e0b,color:#111;
+    class Turn,AI,Timer,Storage added;
 ```
 
+Orange boxes were added in Project 2.
+
 - `index.html` provides the application root and loads the compiled entry point.
-- `src/main.ts` starts the application by rendering the start screen.
-- `src/ui.ts` owns screen rendering, browser events, board-cell interaction, HUD updates, and the win animation.
+- `src/main.ts` starts the application by rendering the start screen, then passes the chosen mine count and game mode to the game screen.
+- `src/ui.ts` owns screen rendering, browser events, board-cell interaction, HUD updates, and the win animation. The start screen has a game mode dropdown (Normal, Easy AI, Medium AI, Hard AI).
+- **Turn controller** (inside `src/ui.ts`): in an AI mode, it waits one second after each player reveal or flag, then calls the AI move function for the selected mode from the `AI_MOVES` table. The board is locked while the AI move is pending, and starting a new game cancels it. Adding a new difficulty only needs one new entry in `AI_MOVES` and one dropdown option.
+- **AI solver** (inside `src/game.ts`): `makeEasyAIMove`, `makeMediumAIMove`, and `makeHardAIMove` each make exactly one move per call. Easy reveals a random covered cell, never picking a flagged or already revealed one. Medium applies the two basic rules (flag all hidden neighbors when they must all be mines, open the rest when a number's flags are satisfied) and otherwise clicks a random covered cell. Hard adds the 1-2-1 pattern rule before falling back to a random click. The AI only reads what a player can see (cell state and numbers), never `isMine`, and acts through the same `revealCell` and `toggleFlag` functions the player uses.
 - `src/game.ts` owns board creation, mine placement, adjacent-mine counts, revealing, flagging, win detection, and loss handling.
+- `src/new_suggestion/timerHighScore.ts` is the custom addition. It starts the clock on the first reveal, freezes it on a win or loss, and saves the fastest winning time for each mine count in the browser's `localStorage`. The HUD shows the current time and the best time.
 - `src/types.ts` defines shared constants, data structures, coordinate helpers, and bounds checking.
 - `style.css` supplies the visual design and responsive board layout.
+- Tests: `src/game.test.ts` covers the game rules and all three AI levels, and `src/new_suggestion/timerHighScore.test.ts` covers the timer and high scores.
 
 ## Data Model
 
