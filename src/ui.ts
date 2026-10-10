@@ -9,24 +9,6 @@
  *
  * Author: Aayush Gajakas and Aiman Boullaouz
  * Creation Date: September 15, 2026
- * 
- * Modified By: John Pannell
- * Modification Date: October 10, 2026
- * Modification Changes: Added the game mode selector for normal, easy AI, and Basic self-solving modes.
- * Updated the start-game callback, connected Easy AI turns to player moves, added
- * one-second delay before the AI moves, disabled flagging, added result messages for the winner, and 
- * implemented automatic random moves for Basic Self-Solving mode.
- * Modification AI Attribution: 
- *  AI Tool: ChatGPT (GPT-5.6 Luna) 
- *  Use of AI: AI was used for integration assistance and recommending primary parts 
- *  of adjustment including new parameters to be added. Also, AI helped coordinate automated moves
- *  and implement the self-solver mode.
- *  Prompt: "Given the attached files of the original project from another team, assist in
- *  stating changes that need to be made to create an easy-ai interactive mode. This mode should
- *  have AI as an opponent who uncovers cells randomly and alternates turns with player. Then add 
- *  a self-solver mode that follows the same logic of randomly clicking cells to solve."
- *  Changes After AI Assistance: Changes made included adding a delay so the user can 
- *  clearly see the move of the AI, disabling flags, and updating the message for the winner.
  *
  * Modified By: Zema Samuel
  * Modification Date: October 10, 2026
@@ -41,6 +23,9 @@
  *  Use of AI: Integration assistance for extending the existing Easy AI and Basic Self-Solving
  *  code to the Hard AI and Advanced Self-Solving modes.
  * 
+ * Project 2 Feature Author: Cameren Green (timer and high-score integration).
+ * Reviewed by: Pranav Reddy. No issues found; all tests passing.
+ * Documentation author: Pranav Reddy (Project 2 feature prologues).
  * External Sources / Attribution: Original project UI code; browser DOM APIs and the
  * Canvas 2D API are used directly from the browser environment. No third-party UI logic
  * was copied into this file.
@@ -58,6 +43,12 @@ import {
 } from './game.js';
 // import the shared board size constants and board type from the model layer
 import { BOARD_SIZE, MAX_MINES, MIN_MINES, type Board } from './types.js';
+// import the Project 2 custom timer and persistent high-score controller
+import {
+    formatElapsed,
+    TimerHighScoreController,
+    type TimerSnapshot,
+} from './new_suggestion/timerHighScore.js';
 
 // Combined: indicate whether the player is playing normally, against the easy or hard AI, or in a self-solving mode
 type GameMode = 'human' | 'easy-ai' | 'hard-ai' | 'basic-self-solving' | 'advanced-self-solving';
@@ -436,7 +427,19 @@ function showWinCelebration(app: HTMLElement, messageText: string): void {
     window.requestAnimationFrame(animate);
 }
 
-// render the active game screen with a board, HUD, and status update logic
+/**
+ * Function: renderGameScreen
+ * Description: Connects the board and game lifecycle to the timer/high-score HUD.
+ * Inputs: Selected mine count, selected game mode, and callback for returning to the start screen.
+ * Outputs: None; renders the game, starts timing on reveal, stops on win/loss,
+ * and disposes the timer when New game is clicked.
+ * Implementation authors: Aayush Gajakas and Aiman Boullaouz (original UI);
+ *                        Cameren Green (timer/high-score integration).
+ * Documentation author: Pranav Reddy
+ * Creation dates: September 15, 2026 (original UI);
+ *                 September 30, 2026 (timer/high-score integration).
+ * Source: Original project UI with the Project 2 timer feature.
+ */
 export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGame: NewGameHandler): void {
     // get the app root and wipe any previous page
     const app = getApp();
@@ -460,8 +463,23 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
         : gameMode === 'advanced-self-solving'
             ? '<h1>Advanced Self-Solving Mode</h1>'
             : '<h1>Find the safe squares</h1>';
-    // create the stats bar with mine count and new-game button
+    // create the stats bar with mine count, timer, best score, and new-game button
     const stats = createElement('div', 'game-stats');
+    const minesStat = createElement('div', 'stat-group');
+    const minesLabel = createElement('span', '', 'Mines');
+    const minesValue = createElement('strong', '', String(gameBoard.mineCount));
+    minesStat.append(minesLabel, minesValue);
+    const timerStat = createElement('div', 'stat-group');
+    const timerLabel = createElement('span', '', 'Time');
+    const timerValue = createElement('strong', '', '00:00');
+    timerStat.append(timerLabel, timerValue);
+    const bestStat = createElement('div', 'stat-group');
+    const bestLabel = createElement('span', '', 'Best');
+    const bestValue = createElement('strong', '', '--:--');
+    bestStat.append(bestLabel, bestValue);
+    const newGameButton = createElement('button', 'new-game-button', 'New game');
+    newGameButton.type = 'button';
+    stats.append(minesStat, timerStat, bestStat, newGameButton);
     // create the status message area for win or loss text
     const gameMessage = createElement('div', 'game-message');
     // create the container that will host the board
@@ -483,35 +501,71 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
         timer: undefined,
         pending: false
     };
-    // this function refreshes the HUD and board whenever the game state changes
+    // remember the prior state so lifecycle transitions start and stop the timer once
+    let previousGameStatus = gameBoard.gameStatus;
+    // Update the elapsed-time display, best time, and new-best highlight.
+    const updateTimerDisplay = (snapshot: TimerSnapshot): void => {
+        timerValue.textContent = formatElapsed(snapshot.elapsedSeconds);
+        bestValue.textContent = snapshot.bestTimeSeconds === null
+            ? '--:--'
+            : formatElapsed(snapshot.bestTimeSeconds);
+        bestValue.classList.toggle('new-best', snapshot.isNewBest);
+    };
+    const timer = new TimerHighScoreController(gameBoard.mineCount, updateTimerDisplay);
+    updateTimerDisplay(timer.getSnapshot());
+    // cancel any pending moves and dispose the timer before returning to the start screen
+    newGameButton.addEventListener('click', () => {
+
+        // Combined: cancel the pending AI move
+        if (aiControl.timer !== undefined) {
+            window.clearTimeout(aiControl.timer);
+            aiControl.timer = undefined;
+        }
+
+        // Reset the AI turn lock
+        aiControl.pending = false;
+
+        // Combined: check if a self-solver mode has been scheduled
+        if (selfSolverTimer !== undefined) {
+
+            // Cancel the scheduled move to allow the user to restart the game
+            window.clearTimeout(selfSolverTimer);
+            selfSolverTimer = undefined;
+        }
+
+        // dispose the repeating timer interval
+        timer.dispose();
+
+        // Return to the start screen
+        onNewGame();
+    });
+    /**
+     * Function: updateGameView
+     * Description: Synchronizes the board, mine counter, timer, and game result.
+     * Inputs: Current board state and previous game status.
+     * Outputs: None; starts/stops timing on transitions and refreshes the UI.
+     * Implementation authors: Aayush Gajakas and Aiman Boullaouz (original UI);
+     *                        Cameren Green (timer/high-score integration).
+     * Documentation author: Pranav Reddy
+     * Creation dates: September 15, 2026 (original UI);
+     *                 September 30, 2026 (timer/high-score integration).
+     * Source: Original project UI with the Project 2 timer feature.
+     */
     const updateGameView = (): void => {
-        // update the remaining-mine counter and add the button to start another round
+        // update the remaining-mine counter
         const flaggedCount = gameBoard.cells.flat().filter((cell) => cell.state === 'flagged').length;
         const remainingMines = gameBoard.mineCount - flaggedCount;
-        stats.innerHTML = `<div><span>Mines</span><strong>${remainingMines}</strong></div><button class="new-game-button" type="button">New game</button>`;
-        // attach the new-game callback when the button is clicked
-        stats.querySelector<HTMLButtonElement>('.new-game-button')?.addEventListener('click', () => {
-            
-            // Combined: cancel the pending AI move
-            if (aiControl.timer !== undefined) {
-                window.clearTimeout(aiControl.timer);
-                aiControl.timer = undefined;
-            }
-            
-            // Reset the AI turn lock
-            aiControl.pending = false;
-            
-            // Combined: check if a self-solver mode has been scheduled
-            if (selfSolverTimer !== undefined) {
-
-                // Cancel the scheduled move to allow the user to restart the game
-                window.clearTimeout(selfSolverTimer);
-                selfSolverTimer = undefined;
-            }
-
-            // Return to the start screen
-            onNewGame();
-        });
+        minesValue.textContent = String(remainingMines);
+        // the first successful reveal changes ready to playing and starts the clock
+        if (previousGameStatus === 'ready' && gameBoard.gameStatus === 'playing') {
+            timer.start();
+        }
+        // winning or losing freezes the final time; only wins are eligible for a record
+        if ((gameBoard.gameStatus === 'won' || gameBoard.gameStatus === 'lost') &&
+            previousGameStatus !== gameBoard.gameStatus) {
+            timer.finish(gameBoard.gameStatus === 'won');
+        }
+        previousGameStatus = gameBoard.gameStatus;
         // set the win/loss message based on the current game status
         gameMessage.textContent = gameBoard.gameStatus === 'won'
             ? winMessage
