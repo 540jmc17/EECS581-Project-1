@@ -2,8 +2,10 @@
  * Module Name: game.ts
  * Description: Implements the core Minesweeper game logic for board creation, mine
  * placement, cell reveal behavior, flag toggling, win detection, and loss handling.
- * Also contains the Hard AI solver (basic flag/open rules, the 1-2-1 pattern rule,
- * and a random-click fallback).
+ * Also contains the Easy AI, the Hard AI, and the Basic and Advanced Self-Solving moves.
+ * The Hard AI reveals one cell per turn using logical deduction (hidden-neighbor rule,
+ * known-mine neighbor rule, 1-2-1 pattern) and falls back to a random click when no rule
+ * applies. Like the Easy AI, it only reveals cells; it never places flags.
  *
  * Inputs: Board state objects, mine counts, row/column coordinates, and game actions
  * triggered by the UI or automated tests.
@@ -11,12 +13,33 @@
  *
  * Author(s): Heidi Schieber, Lilly Tran, and Aayush Gajakas
  * Creation Date: September 15, 2026
+ * 
+ * Modified By: John Pannell
+ * Modification Date: October 10, 2026
+ * Modification Changes: Added two functions for the easy-ai interactive mode logic and the 
+ * logic for the basic self-solver.
+ * Modification AI Attribution:
+ *  AI Tool: ChatGPT (GPT-5.6 Luna) 
+ *  Use of AI: Help in connecting 'ui.ts' to this module to generate the logic for random-move functionality
+ *  in easy-AI and basic self-solving mode.
+ *  Prompt: "Given the attached files of the original project from another team and the current 'ui.ts', assist in
+ *  stating changes that need to be made to create an easy-ai interactive mode. This mode should
+ *  have AI as an opponent who uncovers cells randomly and alternates turns with player. Then add 
+ *  a self-solver mode that follows the same logic of randomly clicking cells to solve."
+ *  Changes After AI Assistance: Revised code to reuse the original easy-ai logic to help in the self-solve
+ *  basic mode.
  *
  * Modified By: Zema Samuel
- * Modification Date: October 7, 2026
- * Modification Changes: Added the Hard AI (makeHardAIMove) and its helper functions.
- * Modification AI Attribution: Claude Sonnet 5.5 was used for integration assistance 
- *
+ * Modification Date: October 10, 2026
+ * Modification Changes: Added the Hard AI (makeHardAIMove) and its helper functions, and the
+ * Advanced Self-Solving move (makeAdvancedSelfSolvingMove), which reuses the Hard AI. The Hard AI
+ * keeps track of cells it has proven to be mines internally instead of flagging them, so it only
+ * ever reveals cells.
+ * Modification AI Attribution:
+ *  AI Tool: Claude Sonnet 5.5
+ *  Use of AI: Integration assistance and help writing the deduction logic for the Hard AI
+ *  (basic rules and the 1-2-1 pattern) and the matching tests.
+ * 
  * External Sources / Attribution: Original project logic developed for this assignment;
  * no third-party code was copied. The game behavior follows the standard Minesweeper
  * rules defined in the project requirements. The Hard AI rules (hidden-neighbor count,
@@ -263,9 +286,98 @@ export function toggleFlag(board: Board, row: number, col: number): void {
     }
 }
 
+/**
+ * Function: makeEasyAIMove
+ * 
+ * Description: Performs one Easy AI reveal on the same board used by the player and randomly selects
+ * and reveal a cell.
+ *
+ * Inputs:
+ *  @param board - The current Minesweeper board.
+ *  @param random - Random number source that will select a cell.
+ * 
+ * Outputs:
+ *  @returns true when AI makes a move and false when the game is over or no covered, unflagged cell remains.
+ * 
+ * Code Origin: Combined - syntax, formulas, and integration help was used throughout the function.
+ */
+export function makeEasyAIMove(board: Board, random: () => number = Math.random): boolean {
+    
+    // Combined: do not make another move when the game is over
+    if (board.gameStatus === 'won' || board.gameStatus === 'lost') {
+        return false;
+    }
 
-// One action the AI has deduced: flag or reveal the cell at (row, col).
-type AIMove = { action: 'flag' | 'reveal'; row: number; col: number };
+    // Combined: find all covered cells so AI does not select a covered cell
+    const candidates: Array<[number, number]> = [];
+    for (let row = 0; row < board.rows; row += 1) {
+        for (let col = 0; col < board.cols; col += 1) {
+            if (board.cells[row][col].state === 'covered') {
+                candidates.push([row, col]);
+            }
+        }
+    }
+
+    // Combined: the game is over if there are not available cells
+    if (candidates.length === 0) {
+        return false;
+    }
+
+    // Combined: create a random value to select one of the candidate cells
+    const sample = random();
+
+    // Combined: reject invalid random values to select a candidate cell
+    if (!Number.isFinite(sample) || sample < 0 || sample >= 1) {
+        throw new RangeError('The Easy AI random source must return a number in [0, 1).');
+    }
+
+    // Combined: convert the random value into a valid index in the candidate list
+    const [row, col] = candidates[Math.floor(sample * candidates.length)];
+
+    // Combined: reuse the reveal behavior after the click by the random AI
+    revealCell(board, row, col);
+
+    // A move was attempted
+    return true;
+}
+
+/**
+ * Function: makeBasicSelfSolvingMove
+ * 
+ * Description: Performs one random move for Basic Self-Solving mode.
+ * Reuses the Easy AI's random selection and existing reveal behavior.
+ *
+ * Inputs:
+ * @param board - The current Minesweeper board.
+ * @param random - Random number source used to select a cell.
+ * 
+ * Output:
+ * @returns True if a move was made, or false if no move is possible.
+ * 
+ * Code Origin: Combined - syntax and reusing existing functions help was used throughout the function.
+ */
+export function makeBasicSelfSolvingMove(
+    board: Board,
+    random: () => number = Math.random
+): boolean {
+
+    // Combined: reuse the random selection from the Easy AI function and use that as the move
+    return makeEasyAIMove(board, random);
+}
+
+// ---------------------------------------------------------
+// PROJECT 2 - HARD AI
+// ---------------------------------------------------------
+
+/**
+ * Builds a "row,col" string so a cell coordinate can be stored in a Set.
+ * @param row - The row index of the cell.
+ * @param col - The col index of the cell.
+ * @returns The coordinate as a string key.
+ */
+function cellKey(row: number, col: number): string {
+    return `${row},${col}`;
+}
 
 /**
  * Lists the on-board neighbors (up to 8) of a cell.
@@ -296,13 +408,16 @@ function neighborsOf(board: Board, row: number, col: number): Array<[number, num
 /**
  * Applies the two basic rules to every revealed number on the board.
  * Only visible information (state and adjacentMines) is used, never isMine.
- *  Rule 1: if hidden neighbors (covered + flagged) equal the number, flag the covered ones.
- *  Rule 2: if flagged neighbors equal the number, reveal the remaining covered ones.
+ * Cells already proven to be mines count the same way a flag would.
+ *  Rule 1: if the hidden neighbors left equal the mines still needed, they are all mines.
+ *  Rule 2: if no more mines are needed, every remaining hidden neighbor is safe.
  * @param board - The Minesweeper game board object.
- * @returns Every move the two rules currently allow.
+ * @param mines - Keys of cells proven to be mines (updated by this function).
+ * @param safe - Keys of cells proven to be safe (updated by this function).
+ * @returns true if at least one new mine or safe cell was learned.
  */
-function findBasicRuleMoves(board: Board): AIMove[] {
-    const moves: AIMove[] = [];
+function applyBasicRules(board: Board, mines: Set<string>, safe: Set<string>): boolean {
+    let learned = false;
 
     for (let row = 0; row < board.rows; row++) {
         for (let col = 0; col < board.cols; col++) {
@@ -313,41 +428,55 @@ function findBasicRuleMoves(board: Board): AIMove[] {
                 continue;
             }
 
-            const neighbors = neighborsOf(board, row, col);
-            const covered = neighbors.filter(([r, c]) => board.cells[r][c].state === 'covered');
-            const flagged = neighbors.filter(([r, c]) => board.cells[r][c].state === 'flagged');
+            // count neighbors already known to be mines and collect the ones still undecided
+            let knownMines = 0;
+            const unknown: Array<[number, number]> = [];
+            for (const [r, c] of neighborsOf(board, row, col)) {
+                const neighbor = board.cells[r][c];
+                const key = cellKey(r, c);
+                if (neighbor.state === 'flagged' || mines.has(key)) {
+                    knownMines += 1;
+                } else if (neighbor.state === 'covered' && !safe.has(key)) {
+                    unknown.push([r, c]);
+                }
+            }
 
             // nothing left to decide around this number
-            if (covered.length === 0) {
+            if (unknown.length === 0) {
                 continue;
             }
 
-            if (flagged.length === cell.adjacentMines) {
-                // Rule 2: the number is satisfied, so every other hidden neighbor is safe
-                for (const [r, c] of covered) {
-                    moves.push({ action: 'reveal', row: r, col: c });
+            const minesNeeded = cell.adjacentMines - knownMines;
+            if (minesNeeded === unknown.length) {
+                // Rule 1: every undecided neighbor must be a mine
+                for (const [r, c] of unknown) {
+                    mines.add(cellKey(r, c));
                 }
-            } else if (covered.length + flagged.length === cell.adjacentMines) {
-                // Rule 1: every hidden neighbor must be a mine
-                for (const [r, c] of covered) {
-                    moves.push({ action: 'flag', row: r, col: c });
+                learned = true;
+            } else if (minesNeeded === 0) {
+                // Rule 2: the number is satisfied, so every undecided neighbor is safe
+                for (const [r, c] of unknown) {
+                    safe.add(cellKey(r, c));
                 }
+                learned = true;
             }
         }
     }
 
-    return moves;
+    return learned;
 }
 
 /**
- * Finds 1-2-1 patterns (horizontal or vertical) and returns the moves they imply.
+ * Finds 1-2-1 patterns (horizontal or vertical) and records what they prove.
  * Three side-by-side revealed cells showing 1, 2, 1 have three hidden cells along one side.
  * If those are the 2's only hidden neighbors, the middle one is safe and the outer two are mines.
  * @param board - The Minesweeper game board object.
- * @returns Reveal move for each safe middle cell and flag moves for each outer mine.
+ * @param mines - Keys of cells proven to be mines (updated by this function).
+ * @param safe - Keys of cells proven to be safe (updated by this function).
+ * @returns true if at least one new mine or safe cell was learned.
  */
-function find121Moves(board: Board): AIMove[] {
-    const moves: AIMove[] = [];
+function apply121Pattern(board: Board, mines: Set<string>, safe: Set<string>): boolean {
+    let learned = false;
 
     // helpers that treat off-board coordinates as "no cell"
     const cellAt = (r: number, c: number) => (inBounds(board, { row: r, col: c }) ? board.cells[r][c] : null);
@@ -399,73 +528,83 @@ function find121Moves(board: Board): AIMove[] {
                         continue;
                     }
 
-                    // middle is safe, outer two are mines
-                    moves.push({ action: 'reveal', row: trio[1][0], col: trio[1][1] });
-                    moves.push({ action: 'flag', row: trio[0][0], col: trio[0][1] });
-                    moves.push({ action: 'flag', row: trio[2][0], col: trio[2][1] });
+                    // outer two are mines, middle is safe
+                    for (const [r, c] of [trio[0], trio[2]]) {
+                        if (!mines.has(cellKey(r, c))) {
+                            mines.add(cellKey(r, c));
+                            learned = true;
+                        }
+                    }
+                    if (!safe.has(cellKey(trio[1][0], trio[1][1]))) {
+                        safe.add(cellKey(trio[1][0], trio[1][1]));
+                        learned = true;
+                    }
                 }
             }
         }
     }
 
-    return moves;
+    return learned;
 }
 
 /**
- * Performs one move from a list of deductions. Safe reveals are preferred over flags.
+ * Works out which hidden cells are certainly mines and which are certainly safe,
+ * using only what the player can see. Rules are repeated until nothing new is learned,
+ * so a mine found by one rule can help the next rule find a safe cell.
+ * Mines are only remembered here; they are never flagged on the board.
  * @param board - The Minesweeper game board object.
- * @param moves - Candidate moves produced by the rule functions.
- * @returns true if a move changed the board, false if none could be applied.
+ * @returns Sets of "row,col" keys for proven mines and proven safe cells.
  */
-function applyOneDeduction(board: Board, moves: AIMove[]): boolean {
-    const ordered = [
-        ...moves.filter((move) => move.action === 'reveal'),
-        ...moves.filter((move) => move.action === 'flag'),
-    ];
+function deduceCells(board: Board): { mines: Set<string>; safe: Set<string> } {
+    const mines = new Set<string>();
+    const safe = new Set<string>();
 
-    for (const move of ordered) {
-        const cell = board.cells[move.row][move.col];
-
-        // skip anything that was already handled
-        if (cell.state !== 'covered') {
-            continue;
-        }
-
-        if (move.action === 'reveal') {
-            revealCell(board, move.row, move.col);
-            return true;
-        }
-
-        toggleFlag(board, move.row, move.col);
-        // toggleFlag silently refuses once the flag limit is reached, so confirm it worked
-        if (board.cells[move.row][move.col].state === 'flagged') {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/**
- * Reveals one random covered cell (flagged and revealed cells are never chosen).
- * @param board - The Minesweeper game board object.
- * @param random - Random number source returning a value in [0, 1).
- * @returns true if a cell was revealed, false if no covered cell remains.
- */
-function revealRandomCovered(board: Board, random: () => number): boolean {
-    // build the list of legal choices once, in row-major order
-    const candidates: Array<[number, number]> = [];
+    // flags already on the board (if any) are treated as known mines
     for (let row = 0; row < board.rows; row++) {
         for (let col = 0; col < board.cols; col++) {
-            if (board.cells[row][col].state === 'covered') {
-                candidates.push([row, col]);
+            if (board.cells[row][col].state === 'flagged') {
+                mines.add(cellKey(row, col));
             }
         }
     }
 
-    if (candidates.length === 0) {
+    // keep applying the rules while they keep finding new information
+    let learnedSomething = true;
+    while (learnedSomething) {
+        const basic = applyBasicRules(board, mines, safe);
+        const pattern = apply121Pattern(board, mines, safe);
+        learnedSomething = basic || pattern;
+    }
+
+    return { mines, safe };
+}
+
+/**
+ * Reveals one random covered cell. Flagged and revealed cells are never chosen, and cells
+ * the AI has proven to be mines are avoided unless nothing else is left.
+ * @param board - The Minesweeper game board object.
+ * @param random - Random number source returning a value in [0, 1).
+ * @param avoid - Keys of cells to avoid (proven mines).
+ * @returns true if a cell was revealed, false if no covered cell remains.
+ */
+function revealRandomCovered(board: Board, random: () => number, avoid: Set<string>): boolean {
+    // build the list of legal choices once, in row-major order
+    const covered: Array<[number, number]> = [];
+    for (let row = 0; row < board.rows; row++) {
+        for (let col = 0; col < board.cols; col++) {
+            if (board.cells[row][col].state === 'covered') {
+                covered.push([row, col]);
+            }
+        }
+    }
+
+    if (covered.length === 0) {
         return false;
     }
+
+    // prefer cells that are not proven mines
+    const preferred = covered.filter(([r, c]) => !avoid.has(cellKey(r, c)));
+    const candidates = preferred.length > 0 ? preferred : covered;
 
     // reject a bad injected value before touching the board
     const sample = random();
@@ -479,13 +618,13 @@ function revealRandomCovered(board: Board, random: () => number): boolean {
 }
 
 /**
- * Performs one Hard AI move on the same board the player uses.
- * Priority: (1) the two basic rules, (2) the 1-2-1 pattern, (3) a random covered cell.
- * Performs exactly one action (one flag or one reveal) per call.
+ * Performs one Hard AI move on the same board the player uses. The AI only reveals a cell.
+ * Priority: (1) a cell proven safe by the rules (basic rules and 1-2-1 pattern),
+ * (2) a random covered cell that is not a proven mine.
  *
  * @param board - The current Minesweeper board.
  * @param random - Random number source used only for the fallback click.
- * @returns true if the AI made a move, false if the game is over or no move was possible.
+ * @returns true if the AI revealed a cell, false if the game is over or no move was possible.
  */
 export function makeHardAIMove(board: Board, random: () => number = Math.random): boolean {
     // the controller can safely call this after a finished game
@@ -493,12 +632,46 @@ export function makeHardAIMove(board: Board, random: () => number = Math.random)
         return false;
     }
 
-    // gather everything the rules allow, then do the best single move
-    const moves = [...findBasicRuleMoves(board), ...find121Moves(board)];
-    if (applyOneDeduction(board, moves)) {
-        return true;
+    // work out what is provably safe from the visible numbers
+    const { mines, safe } = deduceCells(board);
+
+    // reveal the first cell proven safe
+    for (const key of safe) {
+        if (mines.has(key)) {
+            continue;
+        }
+        const [row, col] = key.split(',').map(Number);
+        if (board.cells[row][col].state === 'covered') {
+            revealCell(board, row, col);
+            return true;
+        }
     }
 
     // no rule applied, so fall back to a random click
-    return revealRandomCovered(board, random);
+    return revealRandomCovered(board, random, mines);
+}
+
+/**
+ * Function: makeAdvancedSelfSolvingMove
+ *
+ * Description: Performs one move for Advanced Self-Solving mode.
+ * Reuses the Hard AI's deduction logic (basic rules, 1-2-1 pattern, and random fallback)
+ * in the same way Basic Self-Solving reuses the Easy AI.
+ *
+ * Inputs:
+ * @param board - The current Minesweeper board.
+ * @param random - Random number source used only for the fallback click.
+ *
+ * Output:
+ * @returns True if a move was made, or false if no move is possible.
+ *
+ * Code Origin: Original - reuses the existing Hard AI function.
+ */
+export function makeAdvancedSelfSolvingMove(
+    board: Board,
+    random: () => number = Math.random
+): boolean {
+
+    // reuse the Hard AI move as the self-solver's move
+    return makeHardAIMove(board, random);
 }
