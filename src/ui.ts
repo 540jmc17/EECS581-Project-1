@@ -9,18 +9,39 @@
  *
  * Author: Aayush Gajakas and Aiman Boullaouz
  * Creation Date: September 15, 2026
+ * 
+ * Modified By: John Pannell
+ * Modification Date: October 10, 2026
+ * Modification Changes: Added the game mode selector for normal, easy AI, and Basic self-solving modes.
+ * Updated the start-game callback, connected Easy AI turns to player moves, added
+ * one-second delay before the AI moves, disabled flagging, added result messages for the winner, and 
+ * implemented automatic random moves for Basic Self-Solving mode.
+ * Modification AI Attribution: 
+ *  AI Tool: ChatGPT (GPT-5.6 Luna) 
+ *  Use of AI: AI was used for integration assistance and recommending primary parts 
+ *  of adjustment including new parameters to be added. Also, AI helped coordinate automated moves
+ *  and implement the self-solver mode.
+ *  Prompt: "Given the attached files of the original project from another team, assist in
+ *  stating changes that need to be made to create an easy-ai interactive mode. This mode should
+ *  have AI as an opponent who uncovers cells randomly and alternates turns with player. Then add 
+ *  a self-solver mode that follows the same logic of randomly clicking cells to solve."
+ *  Changes After AI Assistance: Changes made included adding a delay so the user can 
+ *  clearly see the move of the AI, disabling flags, and updating the message for the winner.
+ * 
  * External Sources / Attribution: Original project UI code; browser DOM APIs and the
  * Canvas 2D API are used directly from the browser environment. No third-party UI logic
  * was copied into this file.
  * Code Origin: Original implementation combined with standard browser APIs.
  */
-// import the game logic that actually creates boards, reveals cells, and toggles flags
-import { createGame, revealCell, toggleFlag } from './game.js';
+// Combined: import the game logic that actually creates boards, reveals cells, toggles flags, makes easy AI mode, and for the basic self-solve move
+import { createGame, revealCell, toggleFlag, makeEasyAIMove, makeBasicSelfSolvingMove } from './game.js';
 // import the shared board size constants and board type from the model layer
 import { BOARD_SIZE, MAX_MINES, MIN_MINES, type Board } from './types.js';
 
-// type for the start screen callback, it gives the selected mine count to the game launcher
-type StartGameHandler = (mineCount: number) => void;
+// Combined: indicate whether the player is playing normally, against the easy AI, or self-solved mode
+type GameMode = 'human' | 'easy-ai' | 'basic-self-solving';
+// type for the start screen callback, it gives the selected mine count and game mode to the game launcher
+type StartGameHandler = (mineCount: number, gameMode: GameMode) => void;
 // type for the new-game callback, it tells the UI to restart from the start screen
 type NewGameHandler = () => void;
 
@@ -34,6 +55,12 @@ function getApp(): HTMLElement {
     }
     // return the app root so all screens can append content to it
     return app;
+}
+
+// Combined: Helper added because of a TypeScript complaint when the game status changes
+// Reads the status of the current game after an action may have changed it
+function getGameStatus(board: Board): Board['gameStatus'] {
+    return board.gameStatus;
 }
 
 // create a DOM node with a class name and optional text, this keeps element creation short and consistent
@@ -102,18 +129,53 @@ export function renderStartScreen(onStart: StartGameHandler): void {
     // put the readout and range input into the label block
     minePicker.append(mineReadout, mineRange);
 
+    // Combined: Needed help with TypeScript syntax and keeping aligned with the original code
+
+    // create the game mode selector for choosing normal play or Easy AI
+    const modePicker = createElement('label', 'mode-picker');
+
+    // create the text label for the game mode selector
+    const modeLabel = createElement('span', 'mode-label', 'Game mode');
+
+    // create the dropdown containing the game modes to choose
+    const modeSelect = document.createElement('select');
+    modeSelect.className = 'mode-select';
+
+    // normal Minesweeper mode
+    const humanOption = document.createElement('option');
+    humanOption.value = 'human';
+    humanOption.textContent = 'Normal';
+
+    // interactive Easy AI mode where the player and AI alternate turns
+    const easyAIOption = document.createElement('option');
+    easyAIOption.value = 'easy-ai';
+    easyAIOption.textContent = 'Easy AI (Player vs AI)';
+
+    // self solve mode that reveals random covered cells
+    const selfSolvingOption = document.createElement('option');
+    selfSolvingOption.value = 'basic-self-solving';
+    selfSolvingOption.textContent = 'Basic Self-Solving Mode';
+
+    // add all three modes to the selector
+    modeSelect.append(humanOption, easyAIOption, selfSolvingOption);
+
+    // add the label and selector to the start screen
+    modePicker.append(modeLabel, modeSelect);
+
     // create the button that starts a new game
     const startButton = createElement('button', 'start-button', 'Start game');
     // make it a normal button, not a submit button
     startButton.type = 'button';
-    // when clicked, pass the chosen mine count to the parent callback
-    startButton.addEventListener('click', () => onStart(Number(mineRange.value)));
+    // Combined: when clicked, pass the chosen mine count and mode select to the parent callback
+    startButton.addEventListener('click', () => 
+        onStart(Number(mineRange.value), modeSelect.value as GameMode)
+    );
     // create the instruction panel that explains the basic rules
     const instructions = createElement('div', 'instructions');
     // use HTML because the instructions include a list and inline icon
     instructions.innerHTML = '<span class="instruction-icon">?</span><div><strong>How to play</strong><ul><li>Reveal every safe square.</li><li>Use numbers to spot nearby mines.</li><li>Right-click to flag a suspected mine.</li></ul></div>';
-    // add all setup elements to the panel
-    setup.append(setupHeading, minePicker, startButton, instructions);
+    // add all setup elements to the panel, with the new mode picker
+    setup.append(setupHeading, minePicker, modePicker, startButton, instructions);
     // add the intro and setup panel to the shell
     shell.append(intro, setup);
     // append the finished start screen to the app root
@@ -121,7 +183,14 @@ export function renderStartScreen(onStart: StartGameHandler): void {
 }
 
 // render the board grid and attach left-click and right-click handlers to each square
-function renderBoard(boardData: Board, onUpdate: () => void): HTMLElement {
+function renderBoard(
+    boardData: Board,
+    onUpdate: () => void, 
+    gameMode: GameMode, 
+    setLossMessage : (message: string) => void, 
+    setWinMessage : (message: string) => void,
+    easyAIControl: { timer: number | undefined; pending: boolean }
+): HTMLElement {
     // create the board container as a grid
     const board = createElement('div', 'board');
     // set the board id so styling or tests can target it
@@ -159,16 +228,77 @@ function renderBoard(boardData: Board, onUpdate: () => void): HTMLElement {
             }
             // set an accessible label based on the current cell state
             cell.setAttribute('aria-label', cellData.state === 'flagged' ? 'flagged square' : 'covered square');
-            // left click reveals the square and rerenders the board
+            // Combined: left click reveals the square and rerenders the board
             cell.addEventListener('click', () => {
+
+                // ignore clicks from user when in the basic self solve mode
+                if (gameMode === 'basic-self-solving') {
+                    return;
+                }
+
+                // Combined: Ignore clicks if the game has already ended
+                if (getGameStatus(boardData) === 'won' || getGameStatus(boardData) === 'lost') {
+                    return;
+                }
+
+                // Combined: ignore clicks while the Easy AI is waiting to take its turn
+                if (gameMode === 'easy-ai' && easyAIControl.pending) {
+                    return;
+                }
+
+                // Combined: ignore clicks on revealed cells
+                if (boardData.cells[row][column].state !== 'covered') {
+                    return;
+                }
+
                 revealCell(boardData, row, column);
+
+                // If the player hits a mine, display the correct winner
+                if (getGameStatus(boardData) === 'lost') {
+                    setLossMessage(gameMode === 'easy-ai' ? 'AI WINS' : 'GAME OVER');
+                } else if (getGameStatus(boardData) === 'won') {
+                    setWinMessage('YOU WIN');
+                }
+
+                // Combined: Schedule an AI turn only if the player made a valid move
+                if (gameMode == 'easy-ai' && getGameStatus(boardData) === 'playing') {
+
+                    // lock player input until AI is done
+                    easyAIControl.pending = true;
+
+                    // schedule one AI move after one second
+                    easyAIControl.timer = window.setTimeout(() => {
+
+                        // clear the timer ID because schedule callback is running
+                        easyAIControl.timer = undefined; 
+
+                        // confirm the game is in progress
+                        if (getGameStatus(boardData) === "playing") {
+                            makeEasyAIMove(boardData); // have easy-ai make its move
+                            
+                            // If the AI hits a mine, then the user wins
+                            if (getGameStatus(boardData) === "lost") {
+                                setLossMessage('YOU WIN');
+                            } else if (getGameStatus(boardData) === 'won') {
+                                setWinMessage('AI WINS');
+                            }
+                        }
+                        easyAIControl.pending = false; // allow player to move again after AI made its move
+                        onUpdate(); // refresh the interface to show the result
+                    }, 1000);
+                }
+
                 onUpdate();
             });
             // right click toggles a flag and rerenders the board
             cell.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
-                toggleFlag(boardData, row, column);
-                onUpdate();
+
+                // Combined: only allow the player to place or remove flags in the normal 'human' mode
+                if (gameMode === 'human') {
+                    toggleFlag(boardData, row, column);
+                    onUpdate();
+                }
             });
             // append the finished cell to the board container
             board.append(cell);
@@ -179,11 +309,11 @@ function renderBoard(boardData: Board, onUpdate: () => void): HTMLElement {
 }
 
 // show the win overlay and confetti when the board is cleared
-function showWinCelebration(app: HTMLElement): void {
+function showWinCelebration(app: HTMLElement, messageText: string): void {
     // create the overlay container that sits above the game
     const celebration = createElement('div', 'win-celebration');
     // create the large text that says the player won
-    const message = createElement('div', 'win-celebration-message', 'YOU WIN');
+    const message = createElement('div', 'win-celebration-message', messageText);
     // create a canvas that will hold the confetti animation
     const canvas = document.createElement('canvas');
     // give the canvas a class for styling
@@ -254,7 +384,7 @@ function showWinCelebration(app: HTMLElement): void {
 }
 
 // render the active game screen with a board, HUD, and status update logic
-export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): void {
+export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGame: NewGameHandler): void {
     // get the app root and wipe any previous page
     const app = getApp();
     app.replaceChildren();
@@ -271,7 +401,10 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
 
     // create the heading above the board
     const gameHeading = createElement('div', 'game-heading');
-    gameHeading.innerHTML = '<h1>Find the safe squares</h1>';
+    // Combined: Display a heading that is right for the selected game mode
+    gameHeading.innerHTML = gameMode === 'basic-self-solving'
+        ? '<h1>Basic Self-Solving Mode</h1>'
+        : '<h1>Find the safe squares</h1>';
     // create the stats bar with mine count and new-game button
     const stats = createElement('div', 'game-stats');
     // create the status message area for win or loss text
@@ -282,6 +415,19 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
     const boardFrame = createElement('section', 'board-frame');
     // flag to ensure the confetti only appears once per win
     let celebrationShown = false;
+    // Combined: store the displayed result when hit a mine or win
+    let lossMessage = 'GAME OVER';
+    let winMessage = 'YOU WIN';
+    // Combined: stores the scheduled self-solver timer ID to cancel a pending move for a new game
+    let selfSolverTimer: number | undefined;
+    // Combined: Track whether the Easy AI is waiting to move and store its timer ID
+    const easyAIControl: {
+        timer: number | undefined;
+        pending: boolean;
+    } = {
+        timer: undefined,
+        pending: false
+    };
     // this function refreshes the HUD and board whenever the game state changes
     const updateGameView = (): void => {
         // update the remaining-mine counter and add the button to start another round
@@ -289,23 +435,95 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
         const remainingMines = gameBoard.mineCount - flaggedCount;
         stats.innerHTML = `<div><span>Mines</span><strong>${remainingMines}</strong></div><button class="new-game-button" type="button">New game</button>`;
         // attach the new-game callback when the button is clicked
-        stats.querySelector<HTMLButtonElement>('.new-game-button')?.addEventListener('click', onNewGame);
+        stats.querySelector<HTMLButtonElement>('.new-game-button')?.addEventListener('click', () => {
+            
+            // Combined: cancel the pending easy ai move
+            if (easyAIControl.timer !== undefined) {
+                window.clearTimeout(easyAIControl.timer);
+                easyAIControl.timer = undefined;
+            }
+            
+            // Reset the AI turn lock
+            easyAIControl.pending = false;
+            
+            // Combined: check if a self-solver mode has been scheduled
+            if (selfSolverTimer !== undefined) {
+
+                // Cancel the scheduled move to allow the user to restart the game
+                window.clearTimeout(selfSolverTimer);
+                selfSolverTimer = undefined;
+            }
+
+            // Return to the start screen
+            onNewGame();
+        });
         // set the win/loss message based on the current game status
         gameMessage.textContent = gameBoard.gameStatus === 'won'
-            ? 'YOU WIN'
+            ? winMessage
             : gameBoard.gameStatus === 'lost'
-                ? 'GAME OVER'
+                ? lossMessage
                 : '';
         // add a status class for styling
         gameMessage.className = `game-message ${gameBoard.gameStatus}`;
         // if the player wins and the celebration has not been shown yet, trigger it
         if (gameBoard.gameStatus === 'won' && !celebrationShown) {
             celebrationShown = true;
-            showWinCelebration(app);
+            showWinCelebration(app, winMessage);
         }
         // replace the current board with a newly rendered version from the latest game state
-        boardHost.replaceChildren(renderBoard(gameBoard, updateGameView));
+        // Combined: pass the selected mode, a callback for the updating result message, and easy AI turn control
+        boardHost.replaceChildren(renderBoard(
+            gameBoard, 
+            updateGameView, 
+            gameMode, 
+            (message) => {
+                lossMessage = message;
+            },
+            (message) => {
+                winMessage = message;
+            },
+            easyAIControl
+        ));
     };
+
+    /**
+     * Function: runSelfSolverTurn
+     * Description: Perform one random move and schedule another while the game is active.
+     * Inputs: The current gameBoard, gameStatus, and selfSolverTimer maintained by renderGameScreen.
+     * Outputs: Updates the board and result message, and schedules the next move while the game is 
+     * still being played. The stops will occur when the game ends or no move is possible.
+     * Code Origin: Combined - syntax and integration help was used throughout the function.
+    */
+    const runSelfSolverTurn = (): void => {
+
+        // Combined: Stop if the game has already been won or lost.
+        const currentStatus = getGameStatus(gameBoard);
+        if (currentStatus === 'won' || currentStatus === 'lost') {
+            return;
+        }
+
+        // Combined: Reveal one randomly selected covered cell using the 'game.ts' module
+        const moved = makeBasicSelfSolvingMove(gameBoard);
+
+        // Combined: Stop if no move is possible
+        if (!moved) {
+            return;
+        }
+
+        // Combined: Display a specific message if the self-solver hits a mine
+        if (getGameStatus(gameBoard) === 'lost') {
+            lossMessage = 'SELF-SOLVER FAILED';
+        }
+
+        // Combined: Refresh the board to display the latest move and game status
+        updateGameView();
+
+        // Combined: Schedule another move after 500 milliseconds if the game is still going on
+        if (getGameStatus(gameBoard) === 'playing') {
+            selfSolverTimer = window.setTimeout(runSelfSolverTurn, 500);
+        }
+    };
+
     // do an initial render before appending the screen
     updateGameView();
     // place the stats, message, and board into the frame
@@ -314,5 +532,10 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
     gameShell.append(gameHeading, boardFrame);
     // add the entire game screen to the app root
     app.append(gameShell);
-}
 
+    // Combined: Start play when Basic Self-Solving mode is chosen
+    if (gameMode === 'basic-self-solving') {
+        // schedule the first self-solver move after 500 milliseconds and store the timer ID
+        selfSolverTimer = window.setTimeout(runSelfSolverTurn, 500);
+    }
+}

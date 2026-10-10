@@ -9,6 +9,22 @@
  *
  * Author(s): Heidi Schieber, Lilly Tran, and Aayush Gajakas
  * Creation Date: September 15, 2026
+ * 
+ * Modified By: John Pannell
+ * Modification Date: October 10, 2026
+ * Modification Changes: Added two functions for the easy-ai interactive mode logic and the 
+ * logic for the basic self-solver.
+ * Modification AI Attribution:
+ *  AI Tool: ChatGPT (GPT-5.6 Luna) 
+ *  Use of AI: Help in connecting 'ui.ts' to this module to generate the logic for random-move functionality
+ *  in easy-AI and basic self-solving mode.
+ *  Prompt: "Given the attached files of the original project from another team and the current 'ui.ts', assist in
+ *  stating changes that need to be made to create an easy-ai interactive mode. This mode should
+ *  have AI as an opponent who uncovers cells randomly and alternates turns with player. Then add 
+ *  a self-solver mode that follows the same logic of randomly clicking cells to solve."
+ *  Changes After AI Assistance: Revised code to reuse the original easy-ai logic to help in the self-solve
+ *  basic mode.
+ * 
  * External Sources / Attribution: Original project logic developed for this assignment;
  * no third-party code was copied. The game behavior follows the standard Minesweeper
  * rules defined in the project requirements.
@@ -252,4 +268,83 @@ export function toggleFlag(board: Board, row: number, col: number): void {
     if (board.gameStatus === 'playing') {
         updateWinStatus(board);
     }
+}
+
+/**
+ * Function: makeEasyAIMove
+ * 
+ * Description: Performs one Easy AI reveal on the same board used by the player and randomly selects
+ * and reveal a cell.
+ *
+ * Inputs:
+ *  @param board - The current Minesweeper board.
+ *  @param random - Random number source that will select a cell.
+ * 
+ * Outputs:
+ *  @returns true when AI makes a move and false when the game is over or no covered, unflagged cell remains.
+ * 
+ * Code Origin: Combined - syntax, formulas, and integration help was used throughout the function.
+ */
+export function makeEasyAIMove(board: Board, random: () => number = Math.random): boolean {
+    
+    // Combined: do not make another move when the game is over
+    if (board.gameStatus === 'won' || board.gameStatus === 'lost') {
+        return false;
+    }
+
+    // Combined: find all covered cells so AI does not select a covered cell
+    const candidates: Array<[number, number]> = [];
+    for (let row = 0; row < board.rows; row += 1) {
+        for (let col = 0; col < board.cols; col += 1) {
+            if (board.cells[row][col].state === 'covered') {
+                candidates.push([row, col]);
+            }
+        }
+    }
+
+    // Combined: the game is over if there are not available cells
+    if (candidates.length === 0) {
+        return false;
+    }
+
+    // Combined: create a random value to select one of the candidate cells
+    const sample = random();
+
+    // Combined: reject invalid random values to select a candidate cell
+    if (!Number.isFinite(sample) || sample < 0 || sample >= 1) {
+        throw new RangeError('The Easy AI random source must return a number in [0, 1).');
+    }
+
+    // Combined: convert the random value into a valid index in the candidate list
+    const [row, col] = candidates[Math.floor(sample * candidates.length)];
+
+    // Combined: reuse the reveal behavior after the click by the random AI
+    revealCell(board, row, col);
+
+    // A move was attempted
+    return true;
+}
+
+/**
+ * Function: makeBasicSelfSolvingMove
+ * 
+ * Description: Performs one random move for Basic Self-Solving mode.
+ * Reuses the Easy AI's random selection and existing reveal behavior.
+ *
+ * Inputs:
+ * @param board - The current Minesweeper board.
+ * @param random - Random number source used to select a cell.
+ * 
+ * Output:
+ * @returns True if a move was made, or false if no move is possible.
+ * 
+ * Code Origin: Combined - syntax and reusing existing functions help was used throughout the function.
+ */
+export function makeBasicSelfSolvingMove(
+    board: Board,
+    random: () => number = Math.random
+): boolean {
+
+    // Combined: reuse the random selection from the Easy AI function and use that as the move
+    return makeEasyAIMove(board, random);
 }
