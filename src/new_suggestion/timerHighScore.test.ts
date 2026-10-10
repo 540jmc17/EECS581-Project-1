@@ -4,6 +4,7 @@
  * Inputs: Deterministic times and an in-memory storage implementation.
  * Outputs: Node test pass/fail results.
  * Author: Cameren Green
+ * Documentation author: Pranav Reddy
  * Creation Date: September 30, 2026
  * External Sources / Attribution: Original tests created with assistance from OpenAI Codex.
  */
@@ -17,6 +18,7 @@ import {
     type ScoreStorage,
 } from './timerHighScore.js';
 
+// Keep test scores in memory instead of using browser storage.
 class MemoryStorage implements ScoreStorage {
     private readonly values = new Map<string, string>();
 
@@ -29,12 +31,14 @@ class MemoryStorage implements ScoreStorage {
     }
 }
 
+// Check display format for zero, minutes, and durations over an hr.
 test('formats elapsed time as minutes and seconds', () => {
     assert.equal(formatElapsed(0), '00:00');
     assert.equal(formatElapsed(65), '01:05');
     assert.equal(formatElapsed(3601), '60:01');
 });
 
+// Slower wins keep the record, faster wins replace it for the same mine count.
 test('retains only the fastest winning time for each mine count', () => {
     const storage = new MemoryStorage();
 
@@ -51,6 +55,7 @@ test('starts once, stops on a win, and records the completed duration', () => {
     let scheduledTick: (() => void) | undefined;
     let cancelledInterval: number | undefined;
 
+    // Use a controlled clock and interval so the test does not need to wait.
     const timer = new TimerHighScoreController(10, () => undefined, {
         storage,
         now: () => currentTime,
@@ -63,6 +68,7 @@ test('starts once, stops on a win, and records the completed duration', () => {
         },
     });
 
+    // Simulate 5.9 seconds of play, then verify the win saves 5 whole seconds.
     timer.start();
     currentTime = 6_900;
     scheduledTick?.();

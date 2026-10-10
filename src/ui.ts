@@ -9,6 +9,9 @@
  *
  * Author: Aayush Gajakas and Aiman Boullaouz
  * Creation Date: September 15, 2026
+ * Project 2 Feature Author: Cameren Green (timer and high-score integration).
+ * Reviewed by: Pranav Reddy. No issues found; all tests passing.
+ * Documentation author: Pranav Reddy (Project 2 feature prologues).
  * External Sources / Attribution: Original project UI code; browser DOM APIs and the
  * Canvas 2D API are used directly from the browser environment. No third-party UI logic
  * was copied into this file.
@@ -259,7 +262,19 @@ function showWinCelebration(app: HTMLElement): void {
     window.requestAnimationFrame(animate);
 }
 
-// render the active game screen with a board, HUD, and status update logic
+/**
+ * Function: renderGameScreen
+ * Description: Connects the board and game lifecycle to the timer/high-score HUD.
+ * Inputs: Selected mine count and callback for returning to the start screen.
+ * Outputs: None; renders the game, starts timing on reveal, stops on win/loss,
+ * and disposes the timer when New game is clicked.
+ * Implementation authors: Aayush Gajakas and Aiman Boullaouz (original UI);
+ *                        Cameren Green (timer/high-score integration).
+ * Documentation author: Pranav Reddy
+ * Creation dates: September 15, 2026 (original UI);
+ *                 September 30, 2026 (timer/high-score integration).
+ * Source: Original project UI with the Project 2 timer feature.
+ */
 export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): void {
     // get the app root and wipe any previous page
     const app = getApp();
@@ -305,7 +320,7 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
     let celebrationShown = false;
     // remember the prior state so lifecycle transitions start and stop the timer once
     let previousGameStatus = gameBoard.gameStatus;
-    // paint a timer snapshot without rebuilding the board
+    // Update the elapsed-time display, best time, and new-best highlight.
     const updateTimerDisplay = (snapshot: TimerSnapshot): void => {
         timerValue.textContent = formatElapsed(snapshot.elapsedSeconds);
         bestValue.textContent = snapshot.bestTimeSeconds === null
@@ -320,7 +335,18 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
         timer.dispose();
         onNewGame();
     });
-    // this function refreshes the HUD and board whenever the game state changes
+    /**
+     * Function: updateGameView
+     * Description: Synchronizes the board, mine counter, timer, and game result.
+     * Inputs: Current board state and previous game status.
+     * Outputs: None; starts/stops timing on transitions and refreshes the UI.
+     * Implementation authors: Aayush Gajakas and Aiman Boullaouz (original UI);
+     *                        Cameren Green (timer/high-score integration).
+     * Documentation author: Pranav Reddy
+     * Creation dates: September 15, 2026 (original UI);
+     *                 September 30, 2026 (timer/high-score integration).
+     * Source: Original project UI with the Project 2 timer feature.
+     */
     const updateGameView = (): void => {
         // update the remaining-mine counter
         const flaggedCount = gameBoard.cells.flat().filter((cell) => cell.state === 'flagged').length;

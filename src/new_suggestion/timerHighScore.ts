@@ -6,8 +6,10 @@
  * Inputs: Mine count, game lifecycle calls, browser time, and localStorage.
  * Outputs: Timer snapshots for the UI and persisted best-time records.
  *
- * Author: Cameren Green
+ * Implementation author: Cameren Green
  * Creation Date: September 30, 2026
+ * Reviewed by: Pranav Reddy. No issues found; all tests passing.
+ * Documentation author: Pranav Reddy
  * External Sources / Attribution: Original feature implementation created with
  * assistance from OpenAI Codex. It uses standard browser timing and Web Storage APIs.
  * Code Origin: Newly written for the EECS 581 Project 2 custom addition.
@@ -15,7 +17,7 @@
 
 const HIGH_SCORE_STORAGE_KEY = 'minesweeper.highScores.v1';
 
-/** Minimal storage contract so the score logic can be tested without a browser. */
+// Minimal storage contract so the score logic can be tested without a browser
 export interface ScoreStorage {
     getItem(key: string): string | null;
     setItem(key: string, value: string): void;
@@ -37,6 +39,16 @@ interface TimerDependencies {
 
 type StoredScores = Record<string, number>;
 
+/**
+ * Function: readStoredScores
+ * Description: Loads valid saved winning times from storage.
+ * Inputs: Storage adapter containing the saved JSON score map.
+ * Outputs: Mine-count to time map; empty if data can't be read.
+ * Implementation author: Cameren Green
+ * Documentation author: Pranav Reddy
+ * Creation date: September 30, 2026
+ * Source: Original
+ */
 function readStoredScores(storage: ScoreStorage): StoredScores {
     try {
         const rawScores = storage.getItem(HIGH_SCORE_STORAGE_KEY);
@@ -62,12 +74,21 @@ function readStoredScores(storage: ScoreStorage): StoredScores {
     }
 }
 
-/** Returns the fastest saved win for a particular mine count. */
+// Returns the saved best time for this mine count, or null if none exists.
 export function readHighScore(mineCount: number, storage: ScoreStorage): number | null {
     return readStoredScores(storage)[String(mineCount)] ?? null;
 }
 
-/** Saves a winning time only when it improves the existing record. */
+/**
+ * Function: recordHighScore
+ * Description: Updates storage only when a winning time beats the saved record.
+ * Inputs: Mine count, elapsed seconds, and storage adapter.
+ * Outputs: Best time and new-record flag. Ties keep the existing record
+ * Implementation author: Cameren Green
+ * Documentation author: Pranav Reddy
+ * Creation date: September 30, 2026
+ * Source: Original
+ */
 export function recordHighScore(
     mineCount: number,
     elapsedSeconds: number,
@@ -91,7 +112,16 @@ export function recordHighScore(
     return { bestTimeSeconds: roundedTime, isNewBest: true };
 }
 
-/** Formats seconds as a compact minutes:seconds display. */
+/**
+ * Function: formatElapsed
+ * Description: Formats whole seconds for the timer and high-score display.
+ * Inputs: Total elapsed seconds.
+ * Outputs: Minutes:seconds text, such as 01:05.
+ * Implementation author: Cameren Green
+ * Documentation author: Pranav Reddy
+ * Creation date: September 30, 2026
+ * Source: Original
+ */
 export function formatElapsed(totalSeconds: number): string {
     const safeSeconds = Math.max(0, Math.floor(totalSeconds));
     const minutes = Math.floor(safeSeconds / 60);
@@ -99,7 +129,16 @@ export function formatElapsed(totalSeconds: number): string {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-/** Coordinates the live timer and per-mine-count high-score lifecycle. */
+/**
+ * Class: TimerHighScoreController
+ * Description: Manages one round's duration and saved best time for its mine count.
+ * Inputs: Mine count, display callback, and optional timing/storage dependencies.
+ * Outputs: Timer snapshots and saved records for winning rounds.
+ * Implementation author: Cameren Green
+ * Documentation author: Pranav Reddy
+ * Creation date: September 30, 2026
+ * Source: Original
+ */
 export class TimerHighScoreController {
     private readonly storage: ScoreStorage;
     private readonly now: () => number;
@@ -113,6 +152,16 @@ export class TimerHighScoreController {
     private isFinished = false;
     private isNewBest = false;
 
+    /**
+     * Function: TimerHighScoreController.constructor
+     * Description: Prepares one round and loads its saved record; timing starts later.
+     * Inputs: Mine count, display callback, and optional test dependencies.
+     * Outputs: Initialized controller with zero elapsed seconds.
+     * Implementation author: Cameren Green
+     * Documentation author: Pranav Reddy
+     * Creation date: September 30, 2026
+     * Source: Original
+     */
     public constructor(
         private readonly mineCount: number,
         onChange: (snapshot: TimerSnapshot) => void,
@@ -126,7 +175,16 @@ export class TimerHighScoreController {
         this.bestTimeSeconds = readHighScore(mineCount, this.storage);
     }
 
-    /** Starts timing on the first valid reveal. Repeated calls are ignored. */
+    /**
+     * Function: start
+     * Description: Starts timing on the first valid reveal; repeated calls are ignored.
+     * Inputs: None, called by the game-screen lifecycle.
+     * Outputs: None; captures start time, schedules ticks, and updates display.
+     * Implementation author: Cameren Green
+     * Documentation author: Pranav Reddy
+     * Creation date: September 30, 2026
+     * Source: Original
+     */
     public start(): void {
         if (this.startTimeMilliseconds !== null || this.isFinished) {
             return;
@@ -137,7 +195,16 @@ export class TimerHighScoreController {
         this.emit();
     }
 
-    /** Stops timing and records the score only when the player won. */
+    /**
+     * Function: finish
+     * Description: Freezes the duration, saves a record only for a winning round.
+     * Inputs: didWin: true for a win, false for a loss.
+     * Outputs: Final timer snapshot, cancels ticks and updates the display
+     * Implementation author: Cameren Green
+     * Documentation author: Pranav Reddy
+     * Creation date: September 30, 2026
+     * Source: Original
+     */
     public finish(didWin: boolean): TimerSnapshot {
         if (this.isFinished) {
             return this.getSnapshot();
@@ -157,12 +224,13 @@ export class TimerHighScoreController {
         return this.getSnapshot();
     }
 
-    /** Releases the interval when the player leaves the active game screen. */
+    // Cancels the timer when leaving the round without saving a score.
     public dispose(): void {
         this.stopInterval();
         this.isFinished = true;
     }
 
+    // Returns the current elapsed time, best time, and timer status.
     public getSnapshot(): TimerSnapshot {
         return {
             elapsedSeconds: this.elapsedSeconds,
@@ -172,6 +240,16 @@ export class TimerHighScoreController {
         };
     }
 
+    /**
+     * Function: refreshElapsedTime
+     * Description: Calculates whole elapsed seconds from the current and start times.
+     * Inputs: Current clock value and stored start timestamp.
+     * Outputs: None; updates elapsed seconds and notifies the display on change.
+     * Implementation author: Cameren Green
+     * Documentation author: Pranav Reddy
+     * Creation date: September 30, 2026
+     * Source: Original
+     */
     private refreshElapsedTime(): void {
         if (this.startTimeMilliseconds === null || this.isFinished) {
             return;
@@ -187,13 +265,14 @@ export class TimerHighScoreController {
         }
     }
 
+    // Cancels and clears the active interval (if one exists)
     private stopInterval(): void {
         if (this.intervalId !== null) {
             this.cancel(this.intervalId);
             this.intervalId = null;
         }
     }
-
+    // Sends the current timer snapshot to the display call back.
     private emit(): void {
         this.onChange(this.getSnapshot());
     }
