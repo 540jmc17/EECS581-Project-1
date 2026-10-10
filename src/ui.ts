@@ -9,6 +9,9 @@
  *
  * Author: Aayush Gajakas and Aiman Boullaouz
  * Creation Date: September 15, 2026
+ * Project 2 Feature Author: Cameren Green (timer and high-score integration).
+ * Reviewed by: Pranav Reddy. No issues found; all tests passing.
+ * Documentation author: Pranav Reddy (Project 2 feature prologues).
  * External Sources / Attribution: Original project UI code; browser DOM APIs and the
  * Canvas 2D API are used directly from the browser environment. No third-party UI logic
  * was copied into this file.
@@ -18,6 +21,12 @@
 import { createGame, revealCell, toggleFlag } from './game.js';
 // import the shared board size constants and board type from the model layer
 import { BOARD_SIZE, MAX_MINES, MIN_MINES, type Board } from './types.js';
+// import the Project 2 custom timer and persistent high-score controller
+import {
+    formatElapsed,
+    TimerHighScoreController,
+    type TimerSnapshot,
+} from './new_suggestion/timerHighScore.js';
 
 // type for the start screen callback, it gives the selected mine count to the game launcher
 type StartGameHandler = (mineCount: number) => void;
@@ -253,7 +262,19 @@ function showWinCelebration(app: HTMLElement): void {
     window.requestAnimationFrame(animate);
 }
 
-// render the active game screen with a board, HUD, and status update logic
+/**
+ * Function: renderGameScreen
+ * Description: Connects the board and game lifecycle to the timer/high-score HUD.
+ * Inputs: Selected mine count and callback for returning to the start screen.
+ * Outputs: None; renders the game, starts timing on reveal, stops on win/loss,
+ * and disposes the timer when New game is clicked.
+ * Implementation authors: Aayush Gajakas and Aiman Boullaouz (original UI);
+ *                        Cameren Green (timer/high-score integration).
+ * Documentation author: Pranav Reddy
+ * Creation dates: September 15, 2026 (original UI);
+ *                 September 30, 2026 (timer/high-score integration).
+ * Source: Original project UI with the Project 2 timer feature.
+ */
 export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): void {
     // get the app root and wipe any previous page
     const app = getApp();
@@ -272,8 +293,23 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
     // create the heading above the board
     const gameHeading = createElement('div', 'game-heading');
     gameHeading.innerHTML = '<h1>Find the safe squares</h1>';
-    // create the stats bar with mine count and new-game button
+    // create the stats bar with mine count, timer, best score, and new-game button
     const stats = createElement('div', 'game-stats');
+    const minesStat = createElement('div', 'stat-group');
+    const minesLabel = createElement('span', '', 'Mines');
+    const minesValue = createElement('strong', '', String(gameBoard.mineCount));
+    minesStat.append(minesLabel, minesValue);
+    const timerStat = createElement('div', 'stat-group');
+    const timerLabel = createElement('span', '', 'Time');
+    const timerValue = createElement('strong', '', '00:00');
+    timerStat.append(timerLabel, timerValue);
+    const bestStat = createElement('div', 'stat-group');
+    const bestLabel = createElement('span', '', 'Best');
+    const bestValue = createElement('strong', '', '--:--');
+    bestStat.append(bestLabel, bestValue);
+    const newGameButton = createElement('button', 'new-game-button', 'New game');
+    newGameButton.type = 'button';
+    stats.append(minesStat, timerStat, bestStat, newGameButton);
     // create the status message area for win or loss text
     const gameMessage = createElement('div', 'game-message');
     // create the container that will host the board
@@ -282,14 +318,50 @@ export function renderGameScreen(mineCount: number, onNewGame: NewGameHandler): 
     const boardFrame = createElement('section', 'board-frame');
     // flag to ensure the confetti only appears once per win
     let celebrationShown = false;
-    // this function refreshes the HUD and board whenever the game state changes
+    // remember the prior state so lifecycle transitions start and stop the timer once
+    let previousGameStatus = gameBoard.gameStatus;
+    // Update the elapsed-time display, best time, and new-best highlight.
+    const updateTimerDisplay = (snapshot: TimerSnapshot): void => {
+        timerValue.textContent = formatElapsed(snapshot.elapsedSeconds);
+        bestValue.textContent = snapshot.bestTimeSeconds === null
+            ? '--:--'
+            : formatElapsed(snapshot.bestTimeSeconds);
+        bestValue.classList.toggle('new-best', snapshot.isNewBest);
+    };
+    const timer = new TimerHighScoreController(gameBoard.mineCount, updateTimerDisplay);
+    updateTimerDisplay(timer.getSnapshot());
+    // dispose the repeating interval before returning to the start screen
+    newGameButton.addEventListener('click', () => {
+        timer.dispose();
+        onNewGame();
+    });
+    /**
+     * Function: updateGameView
+     * Description: Synchronizes the board, mine counter, timer, and game result.
+     * Inputs: Current board state and previous game status.
+     * Outputs: None; starts/stops timing on transitions and refreshes the UI.
+     * Implementation authors: Aayush Gajakas and Aiman Boullaouz (original UI);
+     *                        Cameren Green (timer/high-score integration).
+     * Documentation author: Pranav Reddy
+     * Creation dates: September 15, 2026 (original UI);
+     *                 September 30, 2026 (timer/high-score integration).
+     * Source: Original project UI with the Project 2 timer feature.
+     */
     const updateGameView = (): void => {
-        // update the remaining-mine counter and add the button to start another round
+        // update the remaining-mine counter
         const flaggedCount = gameBoard.cells.flat().filter((cell) => cell.state === 'flagged').length;
         const remainingMines = gameBoard.mineCount - flaggedCount;
-        stats.innerHTML = `<div><span>Mines</span><strong>${remainingMines}</strong></div><button class="new-game-button" type="button">New game</button>`;
-        // attach the new-game callback when the button is clicked
-        stats.querySelector<HTMLButtonElement>('.new-game-button')?.addEventListener('click', onNewGame);
+        minesValue.textContent = String(remainingMines);
+        // the first successful reveal changes ready to playing and starts the clock
+        if (previousGameStatus === 'ready' && gameBoard.gameStatus === 'playing') {
+            timer.start();
+        }
+        // winning or losing freezes the final time; only wins are eligible for a record
+        if ((gameBoard.gameStatus === 'won' || gameBoard.gameStatus === 'lost') &&
+            previousGameStatus !== gameBoard.gameStatus) {
+            timer.finish(gameBoard.gameStatus === 'won');
+        }
+        previousGameStatus = gameBoard.gameStatus;
         // set the win/loss message based on the current game status
         gameMessage.textContent = gameBoard.gameStatus === 'won'
             ? 'YOU WIN'

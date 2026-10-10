@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "npm run build && node --test dist/game.test.js",
+    "test": "npm run build && node --test dist/game.test.js dist/new_suggestion/timerHighScore.test.js",
     "start": "npx serve ."
   },
   "devDependencies": {
