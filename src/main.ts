@@ -8,12 +8,17 @@
  *
  * Author: Aayush Gajakas and Aiman Boullaouz
  * Creation Date: September 15, 2026
+ * 
+ * Modificated By: John Pannell
+ * Modification Date: 10/10/26
+ * Modification Changes: Update start-screen callback with the selected game mode
+ * and pass it to the game screen.
  *
  * Modified By: Zema Samuel
- * Modification Date: October 7, 2026
- * Modification Changes: Start-screen callback now receives the selected game mode
- * and passes it to the game screen.
- *
+ * Modification Date: October 10, 2026
+ * Modification Changes: No logic change. The existing start-screen callback already passes the
+ * selected game mode, so it also carries the new Hard AI and Advanced Self-Solving modes.
+ * 
  * External Sources: No external code was copied; browser APIs are used
  * through the UI module.
  */
