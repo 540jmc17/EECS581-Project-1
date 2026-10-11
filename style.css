@@ -231,11 +231,12 @@ button { font: inherit; }
 .game-heading h1 { margin: 0; color: var(--neon); font-family: 'Press Start 2P', monospace; font-size: clamp(20px, 3.3vw, 38px); font-weight: 400; letter-spacing: 0; line-height: 1.35; text-shadow: 3px 3px 0 #6c277f, 0 0 14px #bc78ff66; }
 .game-heading > p:last-child { margin: 14px 0 34px; color: var(--muted); font-family: 'Trebuchet MS', sans-serif; font-size: 14px; }
 .board-frame { width: min(680px, calc(100vw - 36px), calc(100vh - 220px)); max-width: 680px; margin: auto; padding: 18px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 12px 0 #08051a, inset 0 0 22px #241044; }
-.game-stats { display: flex; align-items: center; justify-content: space-between; padding: 5px 2px 18px; font-family: 'Press Start 2P', monospace; }
+.game-stats { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; padding: 5px 2px 18px; font-family: 'Press Start 2P', monospace; }
 .game-stats div { display: flex; align-items: baseline; gap: 8px; }
 .game-stats .new-game-button { margin-left: auto; }
 .game-stats span { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
 .game-stats strong { color: var(--neon); font-family: 'Press Start 2P', monospace; font-size: 12px; font-weight: 400; }
+.game-stats strong.new-best { color: var(--pink); text-shadow: 0 0 10px var(--pink); }
 .status-ready { color: var(--pink) !important; }
 .game-message { min-height: 18px; margin: -4px 0 10px; color: transparent; font-size: 11px; text-align: center; }
 .game-message.won { color: var(--neon); text-shadow: 0 0 10px var(--neon); }
@@ -258,4 +259,6 @@ button { font: inherit; }
     .start-shell { padding: 42px 22px; }
     .setup-panel { padding: 27px 22px; }
     .game-topbar { margin-bottom: 10px; }
+    .game-stats { gap: 10px 14px; }
+    .game-stats .new-game-button { flex-basis: 100%; margin-left: 0; }
 }
