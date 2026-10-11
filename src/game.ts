@@ -317,7 +317,7 @@ export function makeEasyAIMove(board: Board, random: () => number = Math.random)
         return false;
     }
 
-    // Combined: find all covered cells so AI does not select a covered cell
+    // Combined: Find all covered cells so the AI can randomly select one
     const candidates: Array<[number, number]> = [];
     for (let row = 0; row < board.rows; row += 1) {
         for (let col = 0; col < board.cols; col += 1) {
