@@ -9,6 +9,30 @@
  *
  * Author: Aayush Gajakas and Aiman Boullaouz
  * Creation Date: September 15, 2026
+ * 
+ * Modified By: John Pannell
+ * Modification Date: October 10, 2026
+ * Modification Changes: Added the game mode selector for normal, easy AI, and Basic self-solving modes.
+ * Updated the start-game callback, connected Easy AI turns to player moves, added
+ * one-second delay before the AI moves, disabled flagging, added result messages for the winner, and 
+ * implemented automatic random moves for Basic Self-Solving mode.
+ * Modification AI Attribution: 
+ *  AI Tool: ChatGPT (GPT-5.6 Luna) 
+ *  Use of AI: AI was used for integration assistance and recommending primary parts 
+ *  of adjustment including new parameters to be added. Also, AI helped coordinate automated moves
+ *  and implement the self-solver mode.
+ *  Prompt: "Given the attached files of the original project from another team, assist in
+ *  stating changes that need to be made to create an easy-ai interactive mode. This mode should
+ *  have AI as an opponent who uncovers cells randomly and alternates turns with player. Then add 
+ *  a self-solver mode that follows the same logic of randomly clicking cells to solve."
+ *  Changes After AI Assistance: Changes made included adding a delay so the user can 
+ *  clearly see the move of the AI, disabling flags, and updating the message for the winner.
+ *
+ * Modified By: Ahmed Gharib
+ * Modification Date: October 8, 2026
+ * Modification Changes: Added a Medium AI game mode to the selector. The turn controller
+ * now picks the AI move function for the selected mode instead of always calling the Hard AI.
+ * Modification AI Attribution: Claude Opus 5.5 was used to help write these changes.
  *
  * Modified By: Zema Samuel
  * Modification Date: October 10, 2026
@@ -17,7 +41,8 @@
  * while the AI is pending, flagging disabled, winner messages), and Advanced Self-Solving uses the
  * same automatic move loop as Basic Self-Solving. Generalized the AI turn control so Easy and Hard
  * AI share it, and made the mode options appear in the order: Normal, Easy AI, Hard AI, Basic
- * Self-Solving, Advanced Self-Solving.
+ * Self-Solving, Advanced Self-Solving. Merged Ahmed Gharib's Medium AI mode into this flow, so
+ * Easy, Medium, and Hard AI share one turn controller driven by the AI_MOVES lookup table.
  * Modification AI Attribution:
  *  AI Tool: Claude Sonnet 5.5
  *  Use of AI: Integration assistance for extending the existing Easy AI and Basic Self-Solving
@@ -31,12 +56,13 @@
  * was copied into this file.
  * Code Origin: Original implementation combined with standard browser APIs.
  */
-// Combined: import the game logic that actually creates boards, reveals cells, toggles flags, makes easy and hard AI moves, and the basic and advanced self-solve moves
+// Combined: import the game logic that actually creates boards, reveals cells, toggles flags, makes easy, medium, and hard AI moves, and the basic and advanced self-solve moves
 import {
     createGame,
     revealCell,
     toggleFlag,
     makeEasyAIMove,
+    makeMediumAIMove,
     makeHardAIMove,
     makeBasicSelfSolvingMove,
     makeAdvancedSelfSolvingMove
@@ -50,17 +76,27 @@ import {
     type TimerSnapshot,
 } from './new_suggestion/timerHighScore.js';
 
-// Combined: indicate whether the player is playing normally, against the easy or hard AI, or in a self-solving mode
-type GameMode = 'human' | 'easy-ai' | 'hard-ai' | 'basic-self-solving' | 'advanced-self-solving';
+// Combined: indicate whether the player is playing normally, against the easy, medium, or hard AI, or in a self-solving mode
+type GameMode = 'human' | 'easy-ai' | 'medium-ai' | 'hard-ai' | 'basic-self-solving' | 'advanced-self-solving';
+// the game modes where the player takes turns against an AI opponent
+type InteractiveAIMode = 'easy-ai' | 'medium-ai' | 'hard-ai';
 // type for the start screen callback, it gives the selected mine count and game mode to the game launcher
 type StartGameHandler = (mineCount: number, gameMode: GameMode) => void;
 // type for the new-game callback, it tells the UI to restart from the start screen
 type NewGameHandler = () => void;
 
-// true when the player takes turns against an AI opponent (Easy or Hard)
-function isInteractiveAIMode(gameMode: GameMode): boolean {
-    return gameMode === 'easy-ai' || gameMode === 'hard-ai';
+// true when the player takes turns against an AI opponent (Easy, Medium, or Hard)
+function isInteractiveAIMode(gameMode: GameMode): gameMode is InteractiveAIMode {
+    return gameMode === 'easy-ai' || gameMode === 'medium-ai' || gameMode === 'hard-ai';
 }
+
+// maps each interactive AI mode to the function that performs one AI move (Ahmed Gharib, Oct 8 2026)
+// adding a new AI difficulty only requires a new entry here plus a selector option
+const AI_MOVES: Record<InteractiveAIMode, (board: Board) => boolean> = {
+    'easy-ai': (board) => makeEasyAIMove(board),
+    'medium-ai': (board) => makeMediumAIMove(board),
+    'hard-ai': (board) => makeHardAIMove(board),
+};
 
 // true when the computer plays the whole game by itself (Basic or Advanced)
 function isSelfSolvingMode(gameMode: GameMode): boolean {
@@ -173,6 +209,11 @@ export function renderStartScreen(onStart: StartGameHandler): void {
     easyAIOption.value = 'easy-ai';
     easyAIOption.textContent = 'Easy AI (Player vs AI)';
 
+    // interactive Medium AI mode: the AI uses only the two basic rules plus random clicks
+    const mediumAIOption = document.createElement('option');
+    mediumAIOption.value = 'medium-ai';
+    mediumAIOption.textContent = 'Medium AI (Player vs AI)';
+
     // interactive Hard AI mode where the player and AI alternate turns
     const hardAIOption = document.createElement('option');
     hardAIOption.value = 'hard-ai';
@@ -188,10 +229,11 @@ export function renderStartScreen(onStart: StartGameHandler): void {
     advancedSelfSolvingOption.value = 'advanced-self-solving';
     advancedSelfSolvingOption.textContent = 'Advanced Self-Solving Mode';
 
-    // add all five modes to the selector in the order they should appear
+    // add all six modes to the selector in the order they should appear
     modeSelect.append(
         humanOption,
         easyAIOption,
+        mediumAIOption,
         hardAIOption,
         selfSolvingOption,
         advancedSelfSolvingOption
@@ -279,7 +321,7 @@ function renderBoard(
                     return;
                 }
 
-                // Combined: ignore clicks while the Easy or Hard AI is waiting to take its turn
+                // Combined: ignore clicks while the AI opponent is waiting to take its turn
                 if (isInteractiveAIMode(gameMode) && aiControl.pending) {
                     return;
                 }
@@ -301,6 +343,9 @@ function renderBoard(
                 // Combined: Schedule an AI turn only if the player made a valid move
                 if (isInteractiveAIMode(gameMode) && getGameStatus(boardData) === 'playing') {
 
+                    // pick the move function for the selected AI difficulty
+                    const makeAIMove = AI_MOVES[gameMode];
+
                     // lock player input until AI is done
                     aiControl.pending = true;
 
@@ -314,11 +359,7 @@ function renderBoard(
                         if (getGameStatus(boardData) === 'playing') {
 
                             // have the selected AI make its move
-                            if (gameMode === 'hard-ai') {
-                                makeHardAIMove(boardData);
-                            } else {
-                                makeEasyAIMove(boardData);
-                            }
+                            makeAIMove(boardData);
                             
                             // If the AI hits a mine, then the user wins
                             if (getGameStatus(boardData) === 'lost') {
@@ -493,7 +534,7 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
     let winMessage = 'YOU WIN';
     // Combined: stores the scheduled self-solver timer ID to cancel a pending move for a new game
     let selfSolverTimer: number | undefined;
-    // Combined: Track whether the Easy or Hard AI is waiting to move and store its timer ID
+    // Combined: Track whether the Easy, Medium, or Hard AI is waiting to move and store its timer ID
     const aiControl: {
         timer: number | undefined;
         pending: boolean;

@@ -2,10 +2,10 @@
  * Module Name: game.ts
  * Description: Implements the core Minesweeper game logic for board creation, mine
  * placement, cell reveal behavior, flag toggling, win detection, and loss handling.
- * Also contains the Easy AI, the Hard AI, and the Basic and Advanced Self-Solving moves.
- * The Hard AI reveals one cell per turn using logical deduction (hidden-neighbor rule,
- * known-mine neighbor rule, 1-2-1 pattern) and falls back to a random click when no rule
- * applies. Like the Easy AI, it only reveals cells; it never places flags.
+ * Also contains the Easy AI, the Medium AI, the Hard AI, and the Basic and Advanced Self-Solving
+ * moves. The Medium AI reveals one cell per turn using the two basic deduction rules (hidden-neighbor
+ * rule, known-mine neighbor rule); the Hard AI adds the 1-2-1 pattern. Both fall back to a random
+ * click when no rule applies. Like the Easy AI, they only reveal cells; they never place flags.
  *
  * Inputs: Board state objects, mine counts, row/column coordinates, and game actions
  * triggered by the UI or automated tests.
@@ -13,6 +13,13 @@
  *
  * Author(s): Heidi Schieber, Lilly Tran, and Aayush Gajakas
  * Creation Date: September 15, 2026
+ *
+ * Modified By: Ahmed Gharib
+ * Modification Date: October 8, 2026
+ * Modification Changes: Added the Medium AI (makeMediumAIMove), which applies only the
+ * two basic rules and otherwise makes a random click. Hard AI behavior is unchanged.
+ * Modification AI Attribution: Claude Opus 5.5 was used to help write guide and write some of the Medium AI
+ * function, its tests, and the UI mode option.
  * 
  * Modified By: John Pannell
  * Modification Date: October 10, 2026
@@ -34,7 +41,9 @@
  * Modification Changes: Added the Hard AI (makeHardAIMove) and its helper functions, and the
  * Advanced Self-Solving move (makeAdvancedSelfSolvingMove), which reuses the Hard AI. The Hard AI
  * keeps track of cells it has proven to be mines internally instead of flagging them, so it only
- * ever reveals cells.
+ * ever reveals cells. Merged Ahmed Gharib's Medium AI with the Hard AI: both now use one shared
+ * deduction routine, Medium without the 1-2-1 pattern rule and Hard with it, and neither places flags
+ * (the AI modes only reveal cells).
  * Modification AI Attribution:
  *  AI Tool: Claude Sonnet 5.5
  *  Use of AI: Integration assistance and help writing the deduction logic for the Hard AI
@@ -553,9 +562,10 @@ function apply121Pattern(board: Board, mines: Set<string>, safe: Set<string>): b
  * so a mine found by one rule can help the next rule find a safe cell.
  * Mines are only remembered here; they are never flagged on the board.
  * @param board - The Minesweeper game board object.
+ * @param usePattern - true to also use the 1-2-1 pattern rule (Hard AI), false for the basic rules only (Medium AI).
  * @returns Sets of "row,col" keys for proven mines and proven safe cells.
  */
-function deduceCells(board: Board): { mines: Set<string>; safe: Set<string> } {
+function deduceCells(board: Board, usePattern: boolean): { mines: Set<string>; safe: Set<string> } {
     const mines = new Set<string>();
     const safe = new Set<string>();
 
@@ -572,7 +582,7 @@ function deduceCells(board: Board): { mines: Set<string>; safe: Set<string> } {
     let learnedSomething = true;
     while (learnedSomething) {
         const basic = applyBasicRules(board, mines, safe);
-        const pattern = apply121Pattern(board, mines, safe);
+        const pattern = usePattern ? apply121Pattern(board, mines, safe) : false;
         learnedSomething = basic || pattern;
     }
 
@@ -618,22 +628,23 @@ function revealRandomCovered(board: Board, random: () => number, avoid: Set<stri
 }
 
 /**
- * Performs one Hard AI move on the same board the player uses. The AI only reveals a cell.
- * Priority: (1) a cell proven safe by the rules (basic rules and 1-2-1 pattern),
- * (2) a random covered cell that is not a proven mine.
+ * Performs one deduction-based AI move. Shared by the Medium and Hard AI, which differ only in
+ * whether the 1-2-1 pattern rule is used. The AI only reveals a cell; it never places flags.
+ * Priority: (1) a cell proven safe by the rules, (2) a random covered cell that is not a proven mine.
  *
  * @param board - The current Minesweeper board.
  * @param random - Random number source used only for the fallback click.
+ * @param usePattern - true to include the 1-2-1 pattern rule (Hard), false for basic rules only (Medium).
  * @returns true if the AI revealed a cell, false if the game is over or no move was possible.
  */
-export function makeHardAIMove(board: Board, random: () => number = Math.random): boolean {
+function makeDeductiveMove(board: Board, random: () => number, usePattern: boolean): boolean {
     // the controller can safely call this after a finished game
     if (board.gameStatus === 'won' || board.gameStatus === 'lost') {
         return false;
     }
 
     // work out what is provably safe from the visible numbers
-    const { mines, safe } = deduceCells(board);
+    const { mines, safe } = deduceCells(board, usePattern);
 
     // reveal the first cell proven safe
     for (const key of safe) {
@@ -649,6 +660,33 @@ export function makeHardAIMove(board: Board, random: () => number = Math.random)
 
     // no rule applied, so fall back to a random click
     return revealRandomCovered(board, random, mines);
+}
+
+/**
+ * Performs one Medium AI move on the same board the player uses. The AI only reveals a cell.
+ * It applies the two basic rules (hidden neighbors equal the number: they are all mines; flagged or
+ * known-mine neighbors equal the number: every other neighbor is safe). If no rule applies, it
+ * picks a random hidden cell. The 1-2-1 pattern is NOT used; that rule belongs to the Hard AI.
+ *
+ * @param board - The current Minesweeper board.
+ * @param random - Random number source used only for the fallback click.
+ * @returns true if the AI revealed a cell, false if the game is over or no move was possible.
+ */
+export function makeMediumAIMove(board: Board, random: () => number = Math.random): boolean {
+    return makeDeductiveMove(board, random, false);
+}
+
+/**
+ * Performs one Hard AI move on the same board the player uses. The AI only reveals a cell.
+ * Priority: (1) a cell proven safe by the rules (basic rules and 1-2-1 pattern),
+ * (2) a random covered cell that is not a proven mine.
+ *
+ * @param board - The current Minesweeper board.
+ * @param random - Random number source used only for the fallback click.
+ * @returns true if the AI revealed a cell, false if the game is over or no move was possible.
+ */
+export function makeHardAIMove(board: Board, random: () => number = Math.random): boolean {
+    return makeDeductiveMove(board, random, true);
 }
 
 /**
