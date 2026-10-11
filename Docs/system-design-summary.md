@@ -19,7 +19,7 @@ flowchart TD
     UI -->|start / finish| Timer[src/new_suggestion/<br/>timerHighScore.ts]
 
     Turn -->|one move per turn| AI[AI solver in src/game.ts<br/>Easy + Medium + Hard]
-    Solver -->|makeBasicSelfSolvingMove| AI
+    Solver -->|makeBasicSelfSolvingMove/makeAdvancedSelfSolvingMove| AI
     AI -->|revealCell / toggleFlag| Game
     Timer -->|best time per mine count| Storage[(Browser localStorage)]
 
