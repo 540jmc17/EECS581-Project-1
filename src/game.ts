@@ -20,7 +20,7 @@
  * two basic rules and otherwise makes a random click. Hard AI behavior is unchanged.
  * Modification AI Attribution: Claude Opus 5.5 was used to help write guide and write some of the Medium AI
  * function, its tests, and the UI mode option.
- * 
+ *
  * Modified By: John Pannell
  * Modification Date: October 10, 2026
  * Modification Changes: Added two functions for the easy-ai interactive mode logic and the 

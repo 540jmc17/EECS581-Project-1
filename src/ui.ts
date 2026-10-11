@@ -43,6 +43,9 @@
  * AI share it, and made the mode options appear in the order: Normal, Easy AI, Hard AI, Basic
  * Self-Solving, Advanced Self-Solving. Merged Ahmed Gharib's Medium AI mode into this flow, so
  * Easy, Medium, and Hard AI share one turn controller driven by the AI_MOVES lookup table.
+ * Restricted the Project 2 timer and high-score feature to Normal mode: the Time and Best
+ * displays and the TimerHighScoreController are only created when the mode is 'human', so the
+ * AI modes and self-solving modes never run a clock or record a best time.
  * Modification AI Attribution:
  *  AI Tool: Claude Sonnet 5.5
  *  Use of AI: Integration assistance for extending the existing Easy AI and Basic Self-Solving
@@ -504,7 +507,9 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
         : gameMode === 'advanced-self-solving'
             ? '<h1>Advanced Self-Solving Mode</h1>'
             : '<h1>Find the safe squares</h1>';
-    // create the stats bar with mine count, timer, best score, and new-game button
+    // the timer and high score only apply to Normal mode (a human playing alone)
+    const timed = gameMode === 'human';
+    // create the stats bar with mine count, new-game button, and (Normal mode only) timer and best score
     const stats = createElement('div', 'game-stats');
     const minesStat = createElement('div', 'stat-group');
     const minesLabel = createElement('span', '', 'Mines');
@@ -520,7 +525,11 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
     bestStat.append(bestLabel, bestValue);
     const newGameButton = createElement('button', 'new-game-button', 'New game');
     newGameButton.type = 'button';
-    stats.append(minesStat, timerStat, bestStat, newGameButton);
+    if (timed) {
+        stats.append(minesStat, timerStat, bestStat, newGameButton);
+    } else {
+        stats.append(minesStat, newGameButton);
+    }
     // create the status message area for win or loss text
     const gameMessage = createElement('div', 'game-message');
     // create the container that will host the board
@@ -552,8 +561,13 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
             : formatElapsed(snapshot.bestTimeSeconds);
         bestValue.classList.toggle('new-best', snapshot.isNewBest);
     };
-    const timer = new TimerHighScoreController(gameBoard.mineCount, updateTimerDisplay);
-    updateTimerDisplay(timer.getSnapshot());
+    // only Normal mode gets a timer; every other mode leaves it null
+    const timer: TimerHighScoreController | null = timed
+        ? new TimerHighScoreController(gameBoard.mineCount, updateTimerDisplay)
+        : null;
+    if (timer) {
+        updateTimerDisplay(timer.getSnapshot());
+    }
     // cancel any pending moves and dispose the timer before returning to the start screen
     newGameButton.addEventListener('click', () => {
 
@@ -575,7 +589,7 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
         }
 
         // dispose the repeating timer interval
-        timer.dispose();
+        timer?.dispose();
 
         // Return to the start screen
         onNewGame();
@@ -598,11 +612,11 @@ export function renderGameScreen(mineCount: number, gameMode: GameMode, onNewGam
         const remainingMines = gameBoard.mineCount - flaggedCount;
         minesValue.textContent = String(remainingMines);
         // the first successful reveal changes ready to playing and starts the clock
-        if (previousGameStatus === 'ready' && gameBoard.gameStatus === 'playing') {
+        if (timer && previousGameStatus === 'ready' && gameBoard.gameStatus === 'playing') {
             timer.start();
         }
         // winning or losing freezes the final time; only wins are eligible for a record
-        if ((gameBoard.gameStatus === 'won' || gameBoard.gameStatus === 'lost') &&
+        if (timer && (gameBoard.gameStatus === 'won' || gameBoard.gameStatus === 'lost') &&
             previousGameStatus !== gameBoard.gameStatus) {
             timer.finish(gameBoard.gameStatus === 'won');
         }

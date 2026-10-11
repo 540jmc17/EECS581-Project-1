@@ -6,6 +6,18 @@
  * Outputs: Browser-rendered interface styling and visual feedback for gameplay states.
  * Author: Aayush Gajakas, Aiman Boullaouz, and team design contributors
  * Creation Date: September 19, 2026
+
+ * Modified By: John Pannell
+ * Modification Date: 10/10/26
+ * Modification Changes: Added styling for the game-mode dropdown, including the background, border,
+ * hover effects, and optional styling.
+ * Modification AI Attribution:
+ *  AI Tool: ChatGPT (GPT-5.6 Luna) 
+ *  Use of AI: Help in styling the dropdown for the user to blend with the original team style.
+ *  Prompt: "Given the attached files of the original project from another team and the current 'ui.ts' and 'game.ts', assist in
+ *  adding to the 'style.css' file for the dropdown option. The goal is to blend in with the style from the original team"
+ *  Changes After AI Assistance: Changes in colors and border style to match the original team, but the styling looked very nice and professional.
+ *
  * External Sources / Attribution: Original project styling; the Google Fonts "Press Start 2P" typeface is an external dependency and is credited to Google Fonts.
  * Code Origin: Original CSS authored for this project, with the font family sourced externally.
  */
@@ -214,6 +226,73 @@ button { font: inherit; }
 .mine-label { margin-top: 8px; color: var(--neon); font-size: 10px; text-transform: lowercase; }
 .mine-picker input[type='number'] { width: 100%; padding: 10px; color: var(--ink); background: var(--deep); border: 2px solid var(--neon); border-radius: 2px; font: 700 36px 'Trebuchet MS', sans-serif; text-align: center; box-shadow: inset 0 0 12px #0008; }
 .mine-picker input[type='range'] { width: 100%; accent-color: var(--pink); cursor: pointer; }
+
+
+/* Combined: Style the game mode selector to match the start screen. */
+.mode-picker {
+    position: relative;
+    display: grid;
+    gap: 12px;
+    margin-top: 24px;
+    color: var(--neon);
+    font: 700 11px 'Press Start 2P', monospace;
+    letter-spacing: 1px;
+}
+
+/* Combined: Style the label above the dropdown. */
+.mode-label {
+    color: var(--neon);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+/* Combined: Style the dropdown with a dark background and neon border. */
+.mode-select {
+    appearance: none;
+    width: 100%;
+    min-height: 48px;
+    padding: 14px 42px 14px 14px;
+    color: var(--ink);
+    background: linear-gradient(180deg, var(--screen), var(--deep));
+    border: 2px solid var(--neon);
+    border-radius: 3px;
+    font: 400 11px 'Press Start 2P', monospace;
+    letter-spacing: 0;
+    cursor: pointer;
+    box-shadow: inset 0 0 12px #0008, 0 4px 0 #08051a;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+/* Combined: Add a pink arrow to indicate that the dropdown can be opened. */
+.mode-picker::after {
+    content: '▼';
+    position: absolute;
+    right: 14px;
+    bottom: 16px;
+    color: var(--pink);
+    font: 700 10px 'Courier New', monospace;
+    pointer-events: none;
+}
+
+/* Combined: Highlight the dropdown when the mouse hovers over it. */
+.mode-select:hover {
+    border-color: var(--pink);
+    box-shadow: inset 0 0 12px #0008, 0 0 12px #ff8ad855;
+}
+
+/* Combined: Make the dropdown highlighted for users. */
+.mode-select:focus-visible {
+    outline: 3px solid var(--pink);
+    outline-offset: 3px;
+}
+
+/* Combined: Style the options in the dropdown. */
+.mode-select option {
+    color: var(--ink);
+    background: var(--deep);
+    font-family: 'Trebuchet MS', sans-serif;
+}
+
 .start-button, .new-game-button { font-family: 'Press Start 2P', monospace; }
 .start-button { width: 100%; margin-top: 24px; padding: 13px; color: #210d3d; background: var(--pink); border: 0; border-radius: 2px; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: 0 7px 0 #912d7c, 0 0 16px #ff8ad855; transition: transform .15s, box-shadow .15s; }
 .start-button:hover { transform: translateY(2px); box-shadow: 0 5px 0 #912d7c, 0 0 20px #ff8ad877; }
